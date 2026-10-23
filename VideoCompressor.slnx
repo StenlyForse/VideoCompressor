@@ -1,0 +1,6 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/VideoCompressor.App/VideoCompressor.App.csproj" />
+    <Project Path="src/VideoCompressor.Core/VideoCompressor.Core.csproj" />
+  </Folder>
+</Solution>
