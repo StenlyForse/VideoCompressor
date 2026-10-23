@@ -19,12 +19,16 @@ public enum EncoderKind
 /// <param name="CompressionPercent">0 = best quality, 100 = smallest file (spec US-2.3).</param>
 /// <param name="MaxHeight">Downscale limit; <c>null</c> keeps the source resolution.</param>
 /// <param name="MaxFps">Frame-rate limit; <c>null</c> keeps the source frame rate.</param>
+/// <param name="TargetSizeBytes">
+/// Maximum result size (spec 002); <c>null</c> means quality mode, where <paramref name="CompressionPercent"/> applies.
+/// </param>
 public sealed record CompressionSettings(
     int CompressionPercent,
     OutputFormat Format,
     EncoderKind Encoder,
     int? MaxHeight = null,
-    int? MaxFps = null)
+    int? MaxFps = null,
+    long? TargetSizeBytes = null)
 {
     public static CompressionSettings Default { get; } =
         new((int)CompressionLevel.Balanced, OutputFormat.Efficient, EncoderKind.Gpu);
