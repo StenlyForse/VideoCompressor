@@ -91,37 +91,12 @@ public sealed class VideoCompressionService(FfmpegTools tools)
     /// </summary>
     private readonly record struct OutputFileMark(string FilePath, DateTime? LastWriteUtc)
     {
-        // Right after ffmpeg exits the file can stay locked for a moment (e.g. an antivirus
-        // scanning the fresh file in the user's Videos folder), so deletion is retried.
-        private const int DeleteAttempts = 30;
-        private static readonly TimeSpan DeleteRetryDelay = TimeSpan.FromMilliseconds(100);
-
         public static OutputFileMark Capture(string path) =>
             new(path, File.Exists(path) ? File.GetLastWriteTimeUtc(path) : null);
 
-        public async Task DeleteIfWrittenAsync()
-        {
-            for (var attempt = 1; ; attempt++)
-            {
-                try
-                {
-                    if (File.Exists(FilePath) && File.GetLastWriteTimeUtc(FilePath) != LastWriteUtc)
-                    {
-                        File.Delete(FilePath);
-                    }
-
-                    return;
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException && attempt < DeleteAttempts)
-                {
-                    await Task.Delay(DeleteRetryDelay).ConfigureAwait(false);
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                {
-                    // Best effort: give up rather than hide the original error.
-                    return;
-                }
-            }
-        }
+        public Task DeleteIfWrittenAsync() =>
+            File.Exists(FilePath) && File.GetLastWriteTimeUtc(FilePath) != LastWriteUtc
+                ? FileCleanup.DeleteWithRetryAsync(FilePath)
+                : Task.CompletedTask;
     }
 }

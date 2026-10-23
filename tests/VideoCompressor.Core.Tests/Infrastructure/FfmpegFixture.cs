@@ -22,6 +22,9 @@ public sealed class FfmpegFixture : IDisposable
         ShortClip = Generate("короткий клип.mp4", seconds: 2, size: "320x240");
         // 20 s: long enough to observe progress and cancel mid-way.
         LongClip = Generate("длинный клип.mp4", seconds: 20, size: "640x360");
+        // Squeezed hard (very low video quality, 32k audio): re-compressing it can only make it larger.
+        AlreadyCompressedClip = Generate("уже сжатый клип.mp4", seconds: 2, size: "320x240",
+            ["-c:v", "libx265", "-crf", "45", "-x265-params", "log-level=error", "-b:a", "32k"]);
     }
 
     public FfmpegTools? Tools { get; }
@@ -31,6 +34,8 @@ public sealed class FfmpegFixture : IDisposable
     public string ShortClip { get; } = "";
 
     public string LongClip { get; } = "";
+
+    public string AlreadyCompressedClip { get; } = "";
 
     /// <summary>Call at the start of every test that needs ffmpeg.</summary>
     public FfmpegTools RequireTools()
@@ -53,8 +58,9 @@ public sealed class FfmpegFixture : IDisposable
         }
     }
 
-    private string Generate(string name, int seconds, string size)
+    private string Generate(string name, int seconds, string size, string[]? codecArgs = null)
     {
+        codecArgs ??= ["-c:v", "libx264", "-preset", "ultrafast"];
         var path = Path.Combine(Directory, name);
         var startInfo = new ProcessStartInfo(Tools!.FfmpegPath)
         {
@@ -69,7 +75,7 @@ public sealed class FfmpegFixture : IDisposable
             "-f", "lavfi", "-i", $"sine=f=440:d={seconds}",
             "-f", "lavfi", "-i", $"sine=f=880:d={seconds}",
             "-map", "0", "-map", "1", "-map", "2",
-            "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+            .. codecArgs, "-pix_fmt", "yuv420p",
             "-c:a", "aac", "-shortest", path,
         ];
         foreach (var arg in args)
