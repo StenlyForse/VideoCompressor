@@ -1,6 +1,6 @@
 namespace VideoCompressor.Core.IO;
 
-internal static class FileCleanup
+public static class FileCleanup
 {
     // Right after ffmpeg exits a fresh file can stay locked for a moment (e.g. an antivirus
     // scanning it in the user's Videos folder), so deletion is retried.

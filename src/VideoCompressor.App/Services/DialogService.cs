@@ -21,15 +21,15 @@ public sealed class DialogService(Window owner) : IDialogService
         AppleUniformTypeIdentifiers = ["public.mpeg-4"],
     };
 
-    public async Task<string?> PickVideoFileAsync()
+    public async Task<IReadOnlyList<string>> PickVideoFilesAsync()
     {
         var files = await owner.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
             Title = "Выберите видео",
-            AllowMultiple = false,
+            AllowMultiple = true,
             FileTypeFilter = [VideoFiles, FilePickerFileTypes.All],
         });
-        return files.Count > 0 ? files[0].TryGetLocalPath() : null;
+        return [.. files.Select(f => f.TryGetLocalPath()).OfType<string>()];
     }
 
     public async Task<string?> PickOutputFileAsync(string suggestedPath)

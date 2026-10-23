@@ -31,6 +31,11 @@
             <Setter Property="BorderBrush" Value="{DynamicResource SystemAccentColor}" />
         </Style>
 
+        <Style Selector="Button.remove">
+            <Setter Property="Padding" Value="8,2" />
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+
         <Style Selector="Border.banner">
             <Setter Property="Padding" Value="12" />
             <Setter Property="CornerRadius" Value="6" />

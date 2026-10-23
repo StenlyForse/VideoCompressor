@@ -21,31 +21,73 @@
             </StackPanel>
         </Border>
 
-        <!-- US-1.1: source video, also the drop target -->
+        <!-- Spec 003 US-1: the file list, also the drop target -->
         <Border x:Name="DropZone" Classes="dropZone">
-            <Grid ColumnDefinitions="*,Auto">
-                <StackPanel Spacing="4" VerticalAlignment="Center">
-                    <TextBlock Text="Перетащите видео сюда"
-                               Classes="secondary"
-                               IsVisible="{Binding !HasVideo}" />
-                    <TextBlock Text="{Binding FileName}"
-                               FontWeight="SemiBold"
-                               TextTrimming="CharacterEllipsis"
-                               IsVisible="{Binding HasVideo}" />
-                    <TextBlock Text="{Binding VideoSummary}"
-                               Classes="secondary"
-                               IsVisible="{Binding HasVideo}" />
-                    <TextBlock Classes="warning"
-                               TextWrapping="Wrap"
-                               Text="HDR-видео: в этой версии HDR не поддерживается, цвета в результате могут выглядеть блёклыми."
-                               IsVisible="{Binding IsHdr}" />
-                </StackPanel>
-                <Button Grid.Column="1"
-                        Margin="12,0,0,0"
-                        VerticalAlignment="Center"
-                        Content="Выбрать файл…"
-                        Command="{Binding BrowseInputCommand}" />
-            </Grid>
+            <StackPanel Spacing="10">
+                <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
+                    <TextBlock VerticalAlignment="Center"
+                               Text="{Binding FilesHeader}"
+                               Classes.secondary="{Binding !HasItems}"
+                               FontWeight="SemiBold" />
+                    <Button Grid.Column="1"
+                            Content="Убрать готовые"
+                            Command="{Binding ClearFinishedCommand}"
+                            IsVisible="{Binding HasFinishedItems}" />
+                    <Button Grid.Column="2"
+                            Content="Очистить"
+                            Command="{Binding ClearCommand}"
+                            IsVisible="{Binding HasItems}" />
+                    <Button Grid.Column="3"
+                            Content="Добавить файлы…"
+                            Command="{Binding BrowseFilesCommand}" />
+                </Grid>
+
+                <ListBox ItemsSource="{Binding Items}"
+                         MaxHeight="290"
+                         Background="Transparent"
+                         IsVisible="{Binding HasItems}">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:QueueItemViewModel">
+                            <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="2">
+                                <TextBlock Text="{Binding FileName}"
+                                           FontWeight="SemiBold"
+                                           TextTrimming="CharacterEllipsis"
+                                           ToolTip.Tip="{Binding InputPath}" />
+                                <Button Grid.Column="1"
+                                        Classes="remove"
+                                        Content="✕"
+                                        ToolTip.Tip="Убрать из списка"
+                                        Command="{Binding $parent[ListBox].((vm:MainViewModel)DataContext).RemoveItemCommand}"
+                                        CommandParameter="{Binding}" />
+                                <TextBlock Grid.Row="1"
+                                           Classes="secondary"
+                                           Text="{Binding Summary}"
+                                           IsVisible="{Binding Summary, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                <TextBlock Grid.Row="2"
+                                           Classes="warning"
+                                           TextWrapping="Wrap"
+                                           Text="HDR-видео: HDR не поддерживается, цвета в результате могут выглядеть блёклыми."
+                                           IsVisible="{Binding IsHdr}" />
+                                <Grid Grid.Row="3" Grid.ColumnSpan="2" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                                    <TextBlock VerticalAlignment="Center"
+                                               TextWrapping="Wrap"
+                                               Text="{Binding StatusText}"
+                                               Classes.error="{Binding IsError}" />
+                                    <ProgressBar Grid.Column="1"
+                                                 VerticalAlignment="Center"
+                                                 Minimum="0" Maximum="100"
+                                                 Value="{Binding ProgressPercent}"
+                                                 IsVisible="{Binding IsCompressing}" />
+                                    <Button Grid.Column="2"
+                                            Content="Показать файл"
+                                            Command="{Binding RevealCommand}"
+                                            IsVisible="{Binding HasResultFile}" />
+                                </Grid>
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </StackPanel>
         </Border>
 
         <!-- Settings; locked while compressing -->
@@ -150,7 +192,7 @@
         </Grid>
 
         <!-- US-5: where to save -->
-        <Grid ColumnDefinitions="140,*,Auto" RowDefinitions="Auto,Auto" RowSpacing="4" IsVisible="{Binding HasVideo}">
+        <Grid ColumnDefinitions="140,*,Auto" RowDefinitions="Auto,Auto" RowSpacing="4" IsVisible="{Binding IsSingleFile}">
             <TextBlock Text="Сохранить в" VerticalAlignment="Center" />
             <TextBox Grid.Column="1"
                      IsReadOnly="True"
@@ -175,17 +217,9 @@
             <ProgressBar Minimum="0" Maximum="100"
                          Value="{Binding ProgressPercent}"
                          IsVisible="{Binding IsBusy}" />
-            <Grid ColumnDefinitions="*,Auto">
-                <TextBlock VerticalAlignment="Center"
-                           TextWrapping="Wrap"
-                           Text="{Binding StatusText}"
-                           Classes.error="{Binding HasError}" />
-                <Button Grid.Column="1"
-                        Margin="12,0,0,0"
-                        Content="Показать файл"
-                        Command="{Binding RevealOutputCommand}"
-                        IsVisible="{Binding HasResult}" />
-            </Grid>
+            <TextBlock TextWrapping="Wrap"
+                       Text="{Binding StatusText}"
+                       Classes.error="{Binding HasError}" />
             <Expander Header="Подробности ошибки"
                       HorizontalAlignment="Stretch"
                       IsVisible="{Binding HasErrorDetails}">

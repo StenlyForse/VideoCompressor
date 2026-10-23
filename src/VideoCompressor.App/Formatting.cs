@@ -51,6 +51,51 @@ public static class Formatting
                $"{Size(result.OriginalSize)} → {Size(result.CompressedSize)} ({sign}{change}%)";
     }
 
+    /// <summary>Short result for a row of the queue.</summary>
+    public static string ItemResult(CompressionResult result) =>
+        $"Готово: {Size(result.OriginalSize)} → {Size(result.CompressedSize)} ({SavedPercent(result.OriginalSize, result.CompressedSize)})";
+
+    public static string BatchProgress(BatchProgress progress)
+    {
+        var text = $"Файл {progress.CurrentIndex + 1} из {progress.Count} · {(int)(progress.Fraction * 100)}%";
+        return progress.Remaining is { } remaining ? $"{text} · осталось ~{Duration(remaining)}" : text;
+    }
+
+    /// <summary>"Сжато 4 из 5: 812,3 МБ → 151,0 МБ (−81%), пропущено: 1, с ошибками: 0" (spec 003 US-1.8).</summary>
+    /// <param name="notVideoCount">Files that never entered the run because they are not videos; they count as errors.</param>
+    public static string BatchSummary(IReadOnlyList<BatchItemUpdate> results, int notVideoCount, TimeSpan elapsed)
+    {
+        var done = results.Where(r => r.State == BatchItemState.Done && r.Result is not null).ToList();
+        var original = done.Sum(r => r.Result!.OriginalSize);
+        var compressed = done.Sum(r => r.Result!.CompressedSize);
+        var text = $"Готово за {Duration(elapsed)}: сжато {done.Count} из {results.Count + notVideoCount}";
+        if (done.Count > 0)
+        {
+            text += $", {Size(original)} → {Size(compressed)} ({SavedPercent(original, compressed)})";
+        }
+
+        var skipped = results.Count(r => r.State == BatchItemState.SkippedNotSmaller);
+        var failed = results.Count(r => r.State == BatchItemState.Failed) + notVideoCount;
+        if (skipped > 0)
+        {
+            text += $", пропущено: {skipped}";
+        }
+
+        if (failed > 0)
+        {
+            text += $", с ошибками: {failed}";
+        }
+
+        return text;
+    }
+
+    private static string SavedPercent(long original, long compressed)
+    {
+        var saved = original > 0 ? 1 - (double)compressed / original : 0;
+        var change = (int)Math.Round(Math.Abs(saved) * 100);
+        return $"{(saved >= 0 ? "−" : "+")}{change}%";
+    }
+
     private static string CodecName(string codec) => codec switch
     {
         "h264" => "H.264",

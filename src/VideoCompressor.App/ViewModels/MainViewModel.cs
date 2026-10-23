@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
+using System.Diagnostics;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using VideoCompressor.App.Services;
@@ -55,6 +57,8 @@ public sealed partial class MainViewModel : ObservableObject
         // Unknown values (e.g. a hand-edited file) fall back to "original".
         SelectedResolution = Resolutions.FirstOrDefault(r => r.Value == settings.MaxHeight) ?? Resolutions[0];
         SelectedFrameRate = FrameRates.FirstOrDefault(r => r.Value == settings.MaxFps) ?? FrameRates[0];
+
+        Items.CollectionChanged += OnItemsChanged;
     }
 
     /// <summary>Background checks that must not delay the window from appearing.</summary>
@@ -94,31 +98,113 @@ public sealed partial class MainViewModel : ObservableObject
 
     public string FfmpegHintCommand => FfmpegInstallHint.Command;
 
-    // ---- Source video (US-1.1) ----
+    // ---- Files (spec 003 US-1) ----
 
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(FileName), nameof(OutputError), nameof(HasOutputError))]
-    public partial string? InputPath { get; private set; }
+    public ObservableCollection<QueueItemViewModel> Items { get; } = [];
 
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasVideo), nameof(VideoSummary), nameof(IsHdr))]
-    [NotifyCanExecuteChangedFor(nameof(CompressCommand), nameof(BrowseOutputCommand))]
-    public partial VideoInfo? VideoInfo { get; private set; }
+    public bool HasItems => Items.Count > 0;
 
-    public bool HasVideo => VideoInfo is not null;
+    /// <summary>One file behaves as in v1: own output path and a question about a not-smaller result.</summary>
+    public bool IsSingleFile => Items.Count == 1;
 
-    /// <summary>HDR is not handled specially in v1, so colors may shift (spec §9).</summary>
-    public bool IsHdr => VideoInfo?.IsHdr == true;
+    public bool HasFinishedItems => Items.Any(i => i.IsFinished);
 
-    public string? FileName => InputPath is null ? null : Path.GetFileName(InputPath);
+    public string FilesHeader => Items.Count switch
+    {
+        0 => "Перетащите видео сюда",
+        1 => "1 файл",
+        var n => $"Файлов: {n}",
+    };
 
-    public string? VideoSummary => VideoInfo is null ? null : Formatting.VideoSummary(VideoInfo);
+    private QueueItemViewModel? SingleItem => IsSingleFile ? Items[0] : null;
 
-    // ---- Output path (US-5) ----
+    private void OnItemsChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        OnPropertyChanged(nameof(HasItems));
+        OnPropertyChanged(nameof(IsSingleFile));
+        OnPropertyChanged(nameof(FilesHeader));
+        OnPropertyChanged(nameof(HasFinishedItems));
+        // "Сохранить в" exists only for a single file; with more files results go next to their sources.
+        OutputPath = SingleItem is { } single ? OutputPathResolver.GetDefaultOutputPath(single.InputPath) : null;
+        RefreshCommands();
+    }
+
+    [RelayCommand(CanExecute = nameof(CanEditList))]
+    private async Task BrowseFilesAsync() => await AddFilesAsync(await _dialogs.PickVideoFilesAsync());
+
+    /// <summary>Entry point for both the file dialog and drag &amp; drop.</summary>
+    public async Task AddFilesAsync(IEnumerable<string> paths)
+    {
+        if (_tools is null || IsBusy)
+        {
+            return;
+        }
+
+        var added = new List<QueueItemViewModel>();
+        var duplicates = 0;
+        foreach (var path in paths.Select(Path.GetFullPath))
+        {
+            // FR-002: the same file is never queued twice.
+            if (Items.Concat(added).Any(i => OutputPathResolver.IsSamePath(i.InputPath, path)))
+            {
+                duplicates++;
+                continue;
+            }
+
+            var item = new QueueItemViewModel(path, _shell);
+            added.Add(item);
+            Items.Add(item);
+        }
+
+        SetStatus(duplicates > 0 ? $"Уже в списке: {duplicates}" : "");
+
+        foreach (var item in added)
+        {
+            try
+            {
+                item.SetAnalyzed(await new MediaProbe(_tools).ProbeAsync(item.InputPath));
+            }
+            catch (Exception ex) when (ex is FfmpegException or IOException or UnauthorizedAccessException)
+            {
+                item.SetInvalid(ex.Message, (ex as FfmpegException)?.Details);
+            }
+        }
+
+        RefreshCommands();
+    }
+
+    /// <summary>Drag &amp; drop of something without a local path, e.g. from a browser.</summary>
+    public void ReportNonLocalDrop() => SetStatus("Перетащите файл с диска.", isError: true);
+
+    [RelayCommand(CanExecute = nameof(CanEditList))]
+    private void RemoveItem(QueueItemViewModel item) => Items.Remove(item);
+
+    [RelayCommand(CanExecute = nameof(CanEditList))]
+    private void Clear()
+    {
+        Items.Clear();
+        SetStatus("");
+        ProgressPercent = 0;
+    }
+
+    [RelayCommand(CanExecute = nameof(CanClearFinished))]
+    private void ClearFinished()
+    {
+        foreach (var item in Items.Where(i => i.IsFinished).ToList())
+        {
+            Items.Remove(item);
+        }
+    }
+
+    private bool CanEditList() => !IsBusy && !IsFfmpegMissing;
+
+    private bool CanClearFinished() => CanEditList() && HasFinishedItems;
+
+    // ---- Output path for a single file (spec 001 US-5) ----
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(OutputError), nameof(HasOutputError))]
-    [NotifyCanExecuteChangedFor(nameof(CompressCommand))]
+    [NotifyCanExecuteChangedFor(nameof(CompressCommand), nameof(BrowseOutputCommand))]
     public partial string? OutputPath { get; set; }
 
     /// <summary>Why the chosen output path cannot be used, or <c>null</c> if it is fine.</summary>
@@ -126,12 +212,12 @@ public sealed partial class MainViewModel : ObservableObject
     {
         get
         {
-            if (OutputPath is null || InputPath is null)
+            if (OutputPath is null || SingleItem is not { } single)
             {
                 return null;
             }
 
-            if (OutputPathResolver.IsSamePath(OutputPath, InputPath))
+            if (OutputPathResolver.IsSamePath(OutputPath, single.InputPath))
             {
                 return "Нельзя сохранить результат поверх исходного файла — выберите другое имя.";
             }
@@ -157,7 +243,7 @@ public sealed partial class MainViewModel : ObservableObject
         }
     }
 
-    private bool CanBrowseOutput() => !IsBusy && HasVideo;
+    private bool CanBrowseOutput() => !IsBusy && OutputPath is not null;
 
     // ---- Compression level (US-2) ----
 
@@ -315,12 +401,13 @@ public sealed partial class MainViewModel : ObservableObject
         }
     }
 
-    // ---- Progress and result (US-1.2, US-1.3) ----
+    // ---- Progress and result ----
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsIdle))]
-    [NotifyCanExecuteChangedFor(nameof(CompressCommand), nameof(BrowseInputCommand), nameof(BrowseOutputCommand))]
     public partial bool IsBusy { get; private set; }
+
+    partial void OnIsBusyChanged(bool value) => RefreshCommands();
 
     public bool IsIdle => !IsBusy;
 
@@ -340,70 +427,30 @@ public sealed partial class MainViewModel : ObservableObject
 
     public bool HasErrorDetails => ErrorDetails is not null;
 
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasResult))]
-    [NotifyCanExecuteChangedFor(nameof(RevealOutputCommand))]
-    public partial CompressionResult? LastResult { get; private set; }
-
-    public bool HasResult => LastResult is not null;
-
-    // ---- Commands ----
-
-    [RelayCommand(CanExecute = nameof(CanBrowseInput))]
-    private async Task BrowseInputAsync()
-    {
-        var path = await _dialogs.PickVideoFileAsync();
-        if (path is not null)
-        {
-            await LoadFileAsync(path);
-        }
-    }
-
-    private bool CanBrowseInput() => !IsBusy && !IsFfmpegMissing;
-
-    /// <summary>Entry point for both the file dialog and drag &amp; drop.</summary>
-    public async Task LoadFileAsync(string path)
-    {
-        if (_tools is null || IsBusy)
-        {
-            return;
-        }
-
-        SetStatus("Анализ файла…");
-        try
-        {
-            var info = await new MediaProbe(_tools).ProbeAsync(path);
-            InputPath = Path.GetFullPath(path);
-            VideoInfo = info;
-            OutputPath = OutputPathResolver.GetDefaultOutputPath(path);
-            LastResult = null;
-            ProgressPercent = 0;
-            SetStatus("");
-        }
-        catch (Exception ex) when (ex is FfmpegException or IOException or UnauthorizedAccessException)
-        {
-            SetStatus(ex.Message, isError: true, details: (ex as FfmpegException)?.Details);
-        }
-    }
-
-    /// <summary>Drag &amp; drop of something without a local path, e.g. from a browser.</summary>
-    public void ReportNonLocalDrop() => SetStatus("Перетащите файл с диска.", isError: true);
+    // ---- Compression ----
 
     [RelayCommand(CanExecute = nameof(CanCompress), IncludeCancelCommand = true)]
     private async Task CompressAsync(CancellationToken cancellationToken)
     {
-        if (_tools is null || InputPath is null || OutputPath is null || VideoInfo is null)
+        var runnable = Items.Where(i => i.IsRunnable).ToList();
+        if (_tools is null || runnable.Count == 0)
         {
             return;
         }
 
+        var single = IsSingleFile;
+        var batch = runnable
+            .Select(i => new BatchItem(i.InputPath, i.VideoInfo!, single ? OutputPath : null))
+            .ToList();
+
         IsBusy = true;
-        LastResult = null;
         ProgressPercent = 0;
         SetStatus("Сжатие…");
+        var stopwatch = Stopwatch.StartNew();
         try
         {
-            var progress = new Progress<CompressionProgress>(p =>
+            var itemProgress = new Progress<BatchItemUpdate>(u => runnable[u.Index].Apply(u));
+            var batchProgress = new Progress<BatchProgress>(p =>
             {
                 if (!IsBusy)
                 {
@@ -411,45 +458,74 @@ public sealed partial class MainViewModel : ObservableObject
                 }
 
                 ProgressPercent = p.Fraction * 100;
-                StatusText = Formatting.Progress(p);
+                StatusText = single
+                    ? Formatting.Progress(new CompressionProgress(p.Fraction, p.Elapsed, p.Remaining))
+                    : Formatting.BatchProgress(p);
             });
 
-            var result = await new VideoCompressionService(_tools).CompressAsync(
-                InputPath, OutputPath, VideoInfo, BuildSettings(), progress, cancellationToken);
-
-            SaveSettings();
-            // The next run must not silently overwrite this result (US-5.2).
-            OutputPath = OutputPathResolver.GetDefaultOutputPath(InputPath);
-
-            if (result.IsNotSmaller && await ConfirmDeleteNotSmallerAsync(result))
+            // US-4: a queue never stops to ask; a single file asks as in v1.
+            var results = await new BatchCompressionService(_tools).RunAsync(
+                batch, BuildSettings(), deleteNotSmaller: !single, itemProgress, batchProgress, cancellationToken);
+            for (var i = 0; i < results.Count; i++)
             {
-                File.Delete(result.OutputPath);
-                OutputPath = OutputPathResolver.GetDefaultOutputPath(InputPath);
-                SetStatus("Сжатый файл удалён: он получился не меньше исходного. " +
-                          "Попробуйте более сильную степень сжатия или уменьшите разрешение.");
-                return;
+                runnable[i].Apply(results[i]);
             }
 
-            LastResult = result;
-            SetStatus(Formatting.Result(result));
+            SaveSettings();
+            if (single)
+            {
+                await FinishSingleAsync(runnable[0], results[0]);
+            }
+            else
+            {
+                var notVideo = Items.Count(i => i.Status == QueueItemStatus.Invalid);
+                SetStatus(Formatting.BatchSummary(results, notVideo, stopwatch.Elapsed),
+                    isError: results.All(r => r.State == BatchItemState.Failed));
+            }
         }
         catch (OperationCanceledException)
         {
             ProgressPercent = 0;
             SetStatus("Сжатие отменено.");
         }
-        catch (Exception ex) when (ex is FfmpegException or IOException or UnauthorizedAccessException or ArgumentException)
-        {
-            ProgressPercent = 0;
-            SetStatus(ex.Message, isError: true, details: (ex as FfmpegException)?.Details);
-        }
         finally
         {
             IsBusy = false;
+            OnPropertyChanged(nameof(HasFinishedItems));
         }
     }
 
-    /// <summary>Already well-compressed sources can come out larger (spec §9).</summary>
+    private async Task FinishSingleAsync(QueueItemViewModel item, BatchItemUpdate final)
+    {
+        // The next run must not silently overwrite this result (spec 001 US-5.2).
+        OutputPath = OutputPathResolver.GetDefaultOutputPath(item.InputPath);
+
+        if (final.State == BatchItemState.Failed)
+        {
+            ProgressPercent = 0;
+            SetStatus(final.Error ?? "Не удалось сжать видео.", isError: true, details: final.ErrorDetails);
+            return;
+        }
+
+        if (final is not { State: BatchItemState.Done, Result: { } result })
+        {
+            return;
+        }
+
+        if (result.IsNotSmaller && await ConfirmDeleteNotSmallerAsync(result))
+        {
+            await FileCleanup.DeleteWithRetryAsync(result.OutputPath);
+            item.MarkResultDeleted();
+            OutputPath = OutputPathResolver.GetDefaultOutputPath(item.InputPath);
+            SetStatus("Сжатый файл удалён: он получился не меньше исходного. " +
+                      "Попробуйте более сильную степень сжатия или уменьшите разрешение.");
+            return;
+        }
+
+        SetStatus(Formatting.Result(result));
+    }
+
+    /// <summary>Already well-compressed sources can come out larger (spec 001 §9).</summary>
     private Task<bool> ConfirmDeleteNotSmallerAsync(CompressionResult result) =>
         _dialogs.ConfirmAsync(
             "Файл не стал меньше",
@@ -459,11 +535,11 @@ public sealed partial class MainViewModel : ObservableObject
             "Оставить");
 
     private bool CanCompress() =>
-        !IsBusy && _tools is not null && VideoInfo is not null && OutputPath is not null && OutputError is null;
+        !IsBusy && _tools is not null && Items.Any(i => i.IsRunnable) && OutputError is null;
 
     /// <summary>
     /// Called when the window is closing. While compressing, asks the user and, if confirmed,
-    /// cancels and waits until the partial output is cleaned up (spec §9, plan §5.4).
+    /// cancels and waits until the partial output is cleaned up (spec 001 §9, spec 003 US-3.2).
     /// </summary>
     /// <returns><c>true</c> if the window may close.</returns>
     public async Task<bool> ConfirmCloseAsync()
@@ -492,13 +568,19 @@ public sealed partial class MainViewModel : ObservableObject
         return true;
     }
 
-    [RelayCommand(CanExecute = nameof(HasResult))]
-    private Task RevealOutputAsync() =>
-        LastResult is null ? Task.CompletedTask : _shell.RevealFileAsync(LastResult.OutputPath);
-
     private CompressionSettings BuildSettings() =>
         new(CompressionPercent, SelectedFormat.Value, SelectedEncoder.Value,
             SelectedResolution.Value, SelectedFrameRate.Value);
+
+    private void RefreshCommands()
+    {
+        CompressCommand.NotifyCanExecuteChanged();
+        BrowseFilesCommand.NotifyCanExecuteChanged();
+        RemoveItemCommand.NotifyCanExecuteChanged();
+        ClearCommand.NotifyCanExecuteChanged();
+        ClearFinishedCommand.NotifyCanExecuteChanged();
+        BrowseOutputCommand.NotifyCanExecuteChanged();
+    }
 
     private void SetStatus(string text, bool isError = false, string? details = null)
     {

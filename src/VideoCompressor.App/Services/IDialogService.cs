@@ -3,8 +3,8 @@ namespace VideoCompressor.App.Services;
 /// <summary>Dialogs for the view model, so that it never touches windows directly (plan §5.2).</summary>
 public interface IDialogService
 {
-    /// <returns>Local path of the chosen video, or <c>null</c> if cancelled.</returns>
-    Task<string?> PickVideoFileAsync();
+    /// <returns>Local paths of the chosen videos; empty if cancelled.</returns>
+    Task<IReadOnlyList<string>> PickVideoFilesAsync();
 
     /// <returns>Local path to save to, or <c>null</c> if cancelled.</returns>
     Task<string?> PickOutputFileAsync(string suggestedPath);

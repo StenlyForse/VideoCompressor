@@ -62,15 +62,17 @@ public partial class MainWindow : Window
             return;
         }
 
-        var file = e.DataTransfer.TryGetFiles()?.FirstOrDefault();
-        if (file is null)
+        var items = e.DataTransfer.TryGetFiles() ?? [];
+        if (items.Length == 0)
         {
             return;
         }
 
-        if (file.TryGetLocalPath() is { } path && File.Exists(path))
+        // Spec 003 US-1.1: every dropped local file is added; folders and remote items are skipped.
+        var paths = items.Select(i => i.TryGetLocalPath()).OfType<string>().Where(File.Exists).ToList();
+        if (paths.Count > 0)
         {
-            await viewModel.LoadFileAsync(path);
+            await viewModel.AddFilesAsync(paths);
         }
         else
         {
