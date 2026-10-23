@@ -37,6 +37,43 @@ public class VideoCompressionServiceTests(FfmpegFixture fixture)
     }
 
     [Fact]
+    public async Task Limits_DownscaleAndReduceFps_KeepingAspectAndDuration()
+    {
+        var tools = fixture.RequireTools();
+        // LongClip is 640x360 @ 30 fps.
+        var result = await CompressAsync(tools, fixture.LongClip, CompressionSettings.Default with
+        {
+            Encoder = EncoderKind.Cpu,
+            MaxHeight = 240,
+            MaxFps = 15,
+        });
+
+        var probe = new MediaProbe(tools);
+        var original = await probe.ProbeAsync(fixture.LongClip, Ct);
+        var compressed = await probe.ProbeAsync(result.OutputPath, Ct);
+        Assert.Equal((426, 240), (compressed.Width, compressed.Height));
+        Assert.Equal(15.0, compressed.Fps, tolerance: 0.01);
+        Assert.Equal(original.Duration.TotalSeconds, compressed.Duration.TotalSeconds, tolerance: 0.1);
+    }
+
+    [Fact]
+    public async Task Limits_AboveSource_NeverUpscale()
+    {
+        var tools = fixture.RequireTools();
+        // ShortClip is 320x240 @ 30 fps; 1080p / 60 fps limits must leave it as is (US-3.2, US-3.3).
+        var result = await CompressAsync(tools, fixture.ShortClip, CompressionSettings.Default with
+        {
+            Encoder = EncoderKind.Cpu,
+            MaxHeight = 1080,
+            MaxFps = 60,
+        });
+
+        var compressed = await new MediaProbe(tools).ProbeAsync(result.OutputPath, Ct);
+        Assert.Equal((320, 240), (compressed.Width, compressed.Height));
+        Assert.Equal(30.0, compressed.Fps, tolerance: 0.01);
+    }
+
+    [Fact]
     public async Task Progress_IsMonotonicAndEndsAtOne()
     {
         var tools = fixture.RequireTools();

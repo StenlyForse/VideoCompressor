@@ -26,6 +26,8 @@ public sealed partial class MainViewModel : ObservableObject
 
         SelectedLevel = Levels.First(l => l.Level == CompressionLevel.Balanced);
         SelectedFormat = Formats[0];
+        SelectedResolution = Resolutions[0];
+        SelectedFrameRate = FrameRates[0];
         // CPU until the GPU check finishes (plan §4.5).
         Encoders = [CpuEncoder];
         SelectedEncoder = CpuEncoder;
@@ -153,6 +155,46 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty]
     public partial Option<EncoderKind> SelectedEncoder { get; set; }
 
+    // ---- Optional resolution and frame-rate limits (US-3) ----
+
+    public IReadOnlyList<Option<int?>> Resolutions { get; } =
+    [
+        new("Исходное", null),
+        new("1440p", 1440),
+        new("1080p", 1080),
+        new("720p", 720),
+    ];
+
+    public IReadOnlyList<Option<int?>> FrameRates { get; } =
+    [
+        new("Исходная", null),
+        new("60 fps", 60),
+        new("30 fps", 30),
+    ];
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(AdvancedHeader))]
+    public partial Option<int?> SelectedResolution { get; set; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(AdvancedHeader))]
+    public partial Option<int?> SelectedFrameRate { get; set; }
+
+    /// <summary>The block is collapsed by default, so the header tells when something is changed in it.</summary>
+    public string AdvancedHeader
+    {
+        get
+        {
+            var changes = new[] { SelectedResolution, SelectedFrameRate }
+                .Where(o => o?.Value is not null)
+                .Select(o => o!.Name)
+                .ToList();
+            return changes.Count == 0
+                ? "Дополнительно: разрешение и частота кадров"
+                : $"Дополнительно: {string.Join(", ", changes)}";
+        }
+    }
+
     // ---- Progress and result (US-1.2, US-1.3) ----
 
     [ObservableProperty]
@@ -274,7 +316,8 @@ public sealed partial class MainViewModel : ObservableObject
         LastResult is null ? Task.CompletedTask : _shell.RevealFileAsync(LastResult.OutputPath);
 
     private CompressionSettings BuildSettings() =>
-        new(CompressionPercent, SelectedFormat.Value, SelectedEncoder.Value);
+        new(CompressionPercent, SelectedFormat.Value, SelectedEncoder.Value,
+            SelectedResolution.Value, SelectedFrameRate.Value);
 
     private void SetStatus(string text, bool isError = false)
     {
