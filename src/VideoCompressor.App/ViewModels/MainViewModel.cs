@@ -19,15 +19,24 @@ public sealed partial class MainViewModel : ObservableObject
     // The encoder from saved settings; GPU is applied only once the check confirms it works.
     private readonly EncoderKind _preferredEncoder;
 
+    // Whether the OS's built-in player can show H.265 (plan §4.8).
+    private readonly bool _hevcPlayable;
+
     // Guards the level <-> percent synchronization against feedback loops (US-2.4).
     private bool _syncingLevel;
 
-    public MainViewModel(IDialogService dialogs, IPlatformShell shell, FfmpegTools? tools, SettingsStore settingsStore)
+    // Only a format picked in the UI is remembered; otherwise it is auto-selected on every start (US-4.6).
+    private bool _formatChosenByUser;
+    private bool _settingFormatInCode;
+
+    public MainViewModel(
+        IDialogService dialogs, IPlatformShell shell, FfmpegTools? tools, SettingsStore settingsStore, bool hevcPlayable)
     {
         _dialogs = dialogs;
         _shell = shell;
         _tools = tools;
         _settingsStore = settingsStore;
+        _hevcPlayable = hevcPlayable;
 
         // CPU until the GPU check finishes (plan §4.5).
         Encoders = [CpuEncoder];
@@ -38,7 +47,11 @@ public sealed partial class MainViewModel : ObservableObject
         _preferredEncoder = settings.Encoder;
         CompressionPercent = Math.Clamp(settings.CompressionPercent, 0, 100);
         SelectedLevel = Levels.FirstOrDefault(l => l.Percent == CompressionPercent);
-        SelectedFormat = Formats.FirstOrDefault(f => f.Value == settings.Format) ?? Formats[0];
+        // US-4.4: H.265 only if the built-in player can show it, so the default result never plays without picture.
+        var savedFormat = Formats.FirstOrDefault(f => f.Value == settings.Format);
+        _formatChosenByUser = savedFormat is not null;
+        SetFormatInCode(savedFormat ?? Formats.First(f =>
+            f.Value == (hevcPlayable ? OutputFormat.Efficient : OutputFormat.Compatible)));
         // Unknown values (e.g. a hand-edited file) fall back to "original".
         SelectedResolution = Resolutions.FirstOrDefault(r => r.Value == settings.MaxHeight) ?? Resolutions[0];
         SelectedFrameRate = FrameRates.FirstOrDefault(r => r.Value == settings.MaxFps) ?? FrameRates[0];
@@ -68,8 +81,9 @@ public sealed partial class MainViewModel : ObservableObject
         // If the GPU is missing this time (or not checked yet), keep the saved preference
         // instead of silently switching it to CPU for good.
         var encoder = Encoders.Contains(GpuEncoder) ? SelectedEncoder.Value : _preferredEncoder;
+        var format = _formatChosenByUser ? SelectedFormat.Value : (OutputFormat?)null;
         _settingsStore.Save(new AppSettings(
-            CompressionPercent, SelectedFormat.Value, encoder, SelectedResolution.Value, SelectedFrameRate.Value));
+            CompressionPercent, format, encoder, SelectedResolution.Value, SelectedFrameRate.Value));
     }
 
     public IReadOnlyList<LevelOption> Levels => LevelOption.All;
@@ -206,7 +220,8 @@ public sealed partial class MainViewModel : ObservableObject
     public IReadOnlyList<Option<OutputFormat>> Formats { get; } =
     [
         new("Максимальное сжатие (H.265)", OutputFormat.Efficient,
-            "Самый маленький файл. Воспроизводится в современных плеерах, браузерах и Telegram."),
+            "Самый маленький файл. VLC, браузеры, Telegram и macOS показывают его сразу; " +
+            "встроенному плееру Windows нужен кодек HEVC."),
         new("Максимальная совместимость (H.264)", OutputFormat.Compatible,
             "Открывается где угодно, включая старые устройства, но файл примерно в 1,5–2 раза больше."),
     ];
@@ -214,7 +229,48 @@ public sealed partial class MainViewModel : ObservableObject
     public ObservableCollection<Option<EncoderKind>> Encoders { get; }
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(FormatNote), nameof(HasFormatNote), nameof(IsFormatNoteWarning), nameof(CanInstallHevcCodec))]
     public partial Option<OutputFormat> SelectedFormat { get; set; }
+
+    partial void OnSelectedFormatChanged(Option<OutputFormat> value)
+    {
+        if (!_settingFormatInCode)
+        {
+            _formatChosenByUser = true;
+        }
+    }
+
+    private void SetFormatInCode(Option<OutputFormat> format)
+    {
+        _settingFormatInCode = true;
+        SelectedFormat = format;
+        _settingFormatInCode = false;
+    }
+
+    /// <summary>Why the format is what it is, when the OS cannot show H.265 (US-4.4, US-4.5).</summary>
+    public string? FormatNote => (_hevcPlayable, SelectedFormat.Value, _formatChosenByUser) switch
+    {
+        (true, _, _) => null,
+        (false, OutputFormat.Efficient, _) =>
+            "На этом компьютере встроенный плеер покажет такой файл без картинки, только со звуком: " +
+            "нет кодека HEVC. В VLC, браузере и Telegram видео будет. " +
+            "Установите кодек или выберите «Максимальная совместимость».",
+        (false, OutputFormat.Compatible, false) =>
+            "Выбран автоматически: на этом компьютере нет кодека для H.265, поэтому используется формат, " +
+            "который откроется везде. После установки кодека HEVC приложение само будет выбирать H.265 — файлы станут меньше.",
+        _ => null,
+    };
+
+    public bool HasFormatNote => FormatNote is not null;
+
+    public bool IsFormatNoteWarning => !_hevcPlayable && SelectedFormat.Value == OutputFormat.Efficient;
+
+    /// <summary>The codec can only be installed this way on Windows (Microsoft Store).</summary>
+    public bool CanInstallHevcCodec => OperatingSystem.IsWindows() && HasFormatNote;
+
+    [RelayCommand]
+    private Task InstallHevcCodecAsync() =>
+        _shell.OpenUriAsync(new Uri("ms-windows-store://pdp/?ProductId=9NMZLZ57R3T7"));
 
     [ObservableProperty]
     public partial Option<EncoderKind> SelectedEncoder { get; set; }

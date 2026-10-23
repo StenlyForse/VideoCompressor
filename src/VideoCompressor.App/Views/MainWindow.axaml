@@ -95,10 +95,20 @@
                       ItemsSource="{Binding Formats}"
                       SelectedItem="{Binding SelectedFormat}"
                       DisplayMemberBinding="{ReflectionBinding Name}" />
-            <TextBlock Grid.Row="4" Grid.Column="1"
-                       Classes="secondary"
-                       TextWrapping="Wrap"
-                       Text="{Binding SelectedFormat.Hint}" />
+            <StackPanel Grid.Row="4" Grid.Column="1" Spacing="6">
+                <TextBlock Classes="secondary"
+                           TextWrapping="Wrap"
+                           Text="{Binding SelectedFormat.Hint}" />
+                <!-- US-4.4, US-4.5: the OS cannot show H.265 -->
+                <TextBlock TextWrapping="Wrap"
+                           Text="{Binding FormatNote}"
+                           IsVisible="{Binding HasFormatNote}"
+                           Classes.warning="{Binding IsFormatNoteWarning}"
+                           Classes.secondary="{Binding !IsFormatNoteWarning}" />
+                <Button Content="Установить кодек HEVC (Microsoft Store)"
+                        Command="{Binding InstallHevcCodecCommand}"
+                        IsVisible="{Binding CanInstallHevcCodec}" />
+            </StackPanel>
 
             <TextBlock Grid.Row="5" Text="Кодировщик" VerticalAlignment="Center" Margin="0,10,0,0" />
             <ComboBox Grid.Row="5" Grid.Column="1"

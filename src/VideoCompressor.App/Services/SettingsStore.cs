@@ -5,9 +5,10 @@ using VideoCompressor.Core.Compression;
 namespace VideoCompressor.App.Services;
 
 /// <summary>The choices remembered between runs (FR-008).</summary>
+/// <param name="Format">Only a format the user picked; <c>null</c> means "choose automatically" (plan §4.8).</param>
 public sealed record AppSettings(
     int CompressionPercent = (int)CompressionLevel.Balanced,
-    OutputFormat Format = OutputFormat.Efficient,
+    OutputFormat? Format = null,
     EncoderKind Encoder = EncoderKind.Gpu,
     int? MaxHeight = null,
     int? MaxFps = null);

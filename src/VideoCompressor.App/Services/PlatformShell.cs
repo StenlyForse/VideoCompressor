@@ -31,4 +31,6 @@ public sealed class PlatformShell(TopLevel topLevel) : IPlatformShell
             await topLevel.Launcher.LaunchDirectoryInfoAsync(new DirectoryInfo(directory));
         }
     }
+
+    public async Task OpenUriAsync(Uri uri) => await topLevel.Launcher.LaunchUriAsync(uri);
 }
