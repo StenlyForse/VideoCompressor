@@ -19,10 +19,10 @@
 
 ## Фаза 0. Подготовка
 
-- [ ] **T001** Удалить WPF-каркас `src/VideoCompressor.App` и создать вместо него проект Avalonia (`net10.0`). Пакеты: `Avalonia`, `Avalonia.Desktop`, `Avalonia.Themes.Fluent`, `Avalonia.Fonts.Inter` 12.1.4, `CommunityToolkit.Mvvm` 8.4.2. Ссылка на `VideoCompressor.Core`. Файлы `Program.cs`, `App.axaml(.cs)` (Fluent + Inter, системная тема) и пустой `Views/MainWindow.axaml`. `[NFR-005]`
-- [ ] **T002** Создать `tests/VideoCompressor.Core.Tests` (xUnit, `net10.0`) со ссылкой на ядро и добавить его в `VideoCompressor.slnx`.
-- [ ] **T003** Создать `Directory.Build.props` в корне: `Nullable=enable`, `ImplicitUsings=enable`, `LangVersion=latest`, `TreatWarningsAsErrors=true`.
-- [ ] **T004** Создать `README.md`-заготовку: что это, требования, установка FFmpeg для Windows, macOS и Linux, сборка и запуск. `[FR-006]`
+- [x] **T001** Удалить WPF-каркас `src/VideoCompressor.App` и создать вместо него проект Avalonia (`net10.0`). Пакеты: `Avalonia`, `Avalonia.Desktop`, `Avalonia.Themes.Fluent`, `Avalonia.Fonts.Inter` 12.1.4, `CommunityToolkit.Mvvm` 8.4.2. Ссылка на `VideoCompressor.Core`. Файлы `Program.cs`, `App.axaml(.cs)` (Fluent + Inter, системная тема) и пустой `Views/MainWindow.axaml`. `[NFR-005]`
+- [x] **T002** Создать `tests/VideoCompressor.Core.Tests` (xUnit, `net10.0`) со ссылкой на ядро и добавить его в `VideoCompressor.slnx`.
+- [x] **T003** Создать `Directory.Build.props` в корне: `Nullable=enable`, `ImplicitUsings=enable`, `LangVersion=latest`, `TreatWarningsAsErrors=true`.
+- [x] **T004** Создать `README.md`-заготовку: что это, требования, установка FFmpeg для Windows, macOS и Linux, сборка и запуск. `[FR-006]`
 
 **Контрольная точка 0:** `dotnet build` и `dotnet test` проходят; `dotnet run --project src/VideoCompressor.App` открывает пустое окно.
 

@@ -3,4 +3,7 @@
     <Project Path="src/VideoCompressor.App/VideoCompressor.App.csproj" />
     <Project Path="src/VideoCompressor.Core/VideoCompressor.Core.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/VideoCompressor.Core.Tests/VideoCompressor.Core.Tests.csproj" />
+  </Folder>
 </Solution>
