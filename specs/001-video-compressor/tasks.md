@@ -141,7 +141,7 @@
 
 ## Фаза 8. После MVP (P3, по желанию)
 
-- [ ] **T100** GitHub Actions: сборка и тесты (`dotnet test`, FFmpeg из пакетного менеджера) на `windows-latest`, `macos-latest`, `ubuntu-latest` (plan §6).
+- [x] **T100** GitHub Actions: сборка и тесты (`dotnet test`, FFmpeg из пакетного менеджера) на `windows-latest`, `macos-latest`, `ubuntu-latest` (plan §6).
 
 ---
 

@@ -1,5 +1,7 @@
 # Video Compressor
 
+[![CI](https://github.com/StenlyForse/VideoCompressor/actions/workflows/ci.yml/badge.svg)](https://github.com/StenlyForse/VideoCompressor/actions/workflows/ci.yml)
+
 Локальная кросс-платформенная утилита для сжатия видео без заметной потери качества. Задумана для тяжёлых записей экрана, например из NVIDIA App (~200 МБ на минуту), как замена онлайн-сервисам сжатия.
 
 ![Окно Video Compressor](docs/screenshot.png)
