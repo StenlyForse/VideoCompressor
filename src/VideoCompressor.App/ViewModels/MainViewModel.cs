@@ -63,12 +63,12 @@ public sealed partial class MainViewModel : ObservableObject
     // ---- Source video (US-1.1) ----
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(FileName))]
+    [NotifyPropertyChangedFor(nameof(FileName), nameof(OutputError), nameof(HasOutputError))]
     public partial string? InputPath { get; private set; }
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasVideo), nameof(VideoSummary))]
-    [NotifyCanExecuteChangedFor(nameof(CompressCommand))]
+    [NotifyCanExecuteChangedFor(nameof(CompressCommand), nameof(BrowseOutputCommand))]
     public partial VideoInfo? VideoInfo { get; private set; }
 
     public bool HasVideo => VideoInfo is not null;
@@ -77,9 +77,50 @@ public sealed partial class MainViewModel : ObservableObject
 
     public string? VideoSummary => VideoInfo is null ? null : Formatting.VideoSummary(VideoInfo);
 
+    // ---- Output path (US-5) ----
+
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(OutputError), nameof(HasOutputError))]
     [NotifyCanExecuteChangedFor(nameof(CompressCommand))]
     public partial string? OutputPath { get; set; }
+
+    /// <summary>Why the chosen output path cannot be used, or <c>null</c> if it is fine.</summary>
+    public string? OutputError
+    {
+        get
+        {
+            if (OutputPath is null || InputPath is null)
+            {
+                return null;
+            }
+
+            if (OutputPathResolver.IsSamePath(OutputPath, InputPath))
+            {
+                return "Нельзя сохранить результат поверх исходного файла — выберите другое имя.";
+            }
+
+            return Directory.Exists(Path.GetDirectoryName(OutputPath)) ? null : "Папка для сохранения не найдена.";
+        }
+    }
+
+    public bool HasOutputError => OutputError is not null;
+
+    [RelayCommand(CanExecute = nameof(CanBrowseOutput))]
+    private async Task BrowseOutputAsync()
+    {
+        if (OutputPath is null)
+        {
+            return;
+        }
+
+        var path = await _dialogs.PickOutputFileAsync(OutputPath);
+        if (path is not null)
+        {
+            OutputPath = path;
+        }
+    }
+
+    private bool CanBrowseOutput() => !IsBusy && HasVideo;
 
     // ---- Compression level (US-2) ----
 
@@ -199,7 +240,7 @@ public sealed partial class MainViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsIdle))]
-    [NotifyCanExecuteChangedFor(nameof(CompressCommand), nameof(BrowseInputCommand))]
+    [NotifyCanExecuteChangedFor(nameof(CompressCommand), nameof(BrowseInputCommand), nameof(BrowseOutputCommand))]
     public partial bool IsBusy { get; private set; }
 
     public bool IsIdle => !IsBusy;
@@ -309,7 +350,39 @@ public sealed partial class MainViewModel : ObservableObject
         }
     }
 
-    private bool CanCompress() => !IsBusy && _tools is not null && VideoInfo is not null && OutputPath is not null;
+    private bool CanCompress() =>
+        !IsBusy && _tools is not null && VideoInfo is not null && OutputPath is not null && OutputError is null;
+
+    /// <summary>
+    /// Called when the window is closing. While compressing, asks the user and, if confirmed,
+    /// cancels and waits until the partial output is cleaned up (spec §9, plan §5.4).
+    /// </summary>
+    /// <returns><c>true</c> if the window may close.</returns>
+    public async Task<bool> ConfirmCloseAsync()
+    {
+        if (!IsBusy)
+        {
+            return true;
+        }
+
+        var stop = await _dialogs.ConfirmAsync(
+            "Сжатие не завершено",
+            "Остановить сжатие и закрыть приложение? Недописанный файл будет удалён.",
+            "Остановить и закрыть",
+            "Продолжить сжатие");
+        if (!stop)
+        {
+            return false;
+        }
+
+        CompressCancelCommand.Execute(null);
+        if (CompressCommand.ExecutionTask is { } running)
+        {
+            await running;
+        }
+
+        return true;
+    }
 
     [RelayCommand(CanExecute = nameof(HasResult))]
     private Task RevealOutputAsync() =>

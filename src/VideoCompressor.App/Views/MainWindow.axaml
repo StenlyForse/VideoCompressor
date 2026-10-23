@@ -135,6 +135,25 @@
             </Expander>
         </Grid>
 
+        <!-- US-5: where to save -->
+        <Grid ColumnDefinitions="140,*,Auto" RowDefinitions="Auto,Auto" RowSpacing="4" IsVisible="{Binding HasVideo}">
+            <TextBlock Text="Сохранить в" VerticalAlignment="Center" />
+            <TextBox Grid.Column="1"
+                     IsReadOnly="True"
+                     Text="{Binding OutputPath}"
+                     ToolTip.Tip="{Binding OutputPath}" />
+            <Button Grid.Column="2"
+                    Margin="8,0,0,0"
+                    Content="…"
+                    ToolTip.Tip="Выбрать, куда сохранить"
+                    Command="{Binding BrowseOutputCommand}" />
+            <TextBlock Grid.Row="1" Grid.Column="1"
+                       Classes="error"
+                       TextWrapping="Wrap"
+                       Text="{Binding OutputError}"
+                       IsVisible="{Binding HasOutputError}" />
+        </Grid>
+
         <Separator />
 
         <!-- US-1.2, US-1.3: progress and result -->

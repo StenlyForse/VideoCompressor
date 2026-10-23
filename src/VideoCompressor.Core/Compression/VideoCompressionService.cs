@@ -38,13 +38,13 @@ public sealed class VideoCompressionService(FfmpegTools tools)
         }
         catch
         {
-            outputMark.DeleteIfWritten();
+            await outputMark.DeleteIfWrittenAsync().ConfigureAwait(false);
             throw;
         }
 
         if (result.ExitCode != 0)
         {
-            outputMark.DeleteIfWritten();
+            await outputMark.DeleteIfWrittenAsync().ConfigureAwait(false);
             throw CreateError(result.ErrorText);
         }
 
@@ -91,24 +91,36 @@ public sealed class VideoCompressionService(FfmpegTools tools)
     /// </summary>
     private readonly record struct OutputFileMark(string FilePath, DateTime? LastWriteUtc)
     {
+        // Right after ffmpeg exits the file can stay locked for a moment (e.g. an antivirus
+        // scanning the fresh file in the user's Videos folder), so deletion is retried.
+        private const int DeleteAttempts = 30;
+        private static readonly TimeSpan DeleteRetryDelay = TimeSpan.FromMilliseconds(100);
+
         public static OutputFileMark Capture(string path) =>
             new(path, File.Exists(path) ? File.GetLastWriteTimeUtc(path) : null);
 
-        public void DeleteIfWritten()
+        public async Task DeleteIfWrittenAsync()
         {
-            try
+            for (var attempt = 1; ; attempt++)
             {
-                if (File.Exists(FilePath) && File.GetLastWriteTimeUtc(FilePath) != LastWriteUtc)
+                try
                 {
-                    File.Delete(FilePath);
+                    if (File.Exists(FilePath) && File.GetLastWriteTimeUtc(FilePath) != LastWriteUtc)
+                    {
+                        File.Delete(FilePath);
+                    }
+
+                    return;
                 }
-            }
-            catch (IOException)
-            {
-                // Best effort: the file may still be locked for a moment after the process was killed.
-            }
-            catch (UnauthorizedAccessException)
-            {
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException && attempt < DeleteAttempts)
+                {
+                    await Task.Delay(DeleteRetryDelay).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // Best effort: give up rather than hide the original error.
+                    return;
+                }
             }
         }
     }
