@@ -35,6 +35,10 @@
                     <TextBlock Text="{Binding VideoSummary}"
                                Classes="secondary"
                                IsVisible="{Binding HasVideo}" />
+                    <TextBlock Classes="warning"
+                               TextWrapping="Wrap"
+                               Text="HDR-видео: в этой версии HDR не поддерживается, цвета в результате могут выглядеть блёклыми."
+                               IsVisible="{Binding IsHdr}" />
                 </StackPanel>
                 <Button Grid.Column="1"
                         Margin="12,0,0,0"
@@ -172,6 +176,14 @@
                         Command="{Binding RevealOutputCommand}"
                         IsVisible="{Binding HasResult}" />
             </Grid>
+            <Expander Header="Подробности ошибки"
+                      HorizontalAlignment="Stretch"
+                      IsVisible="{Binding HasErrorDetails}">
+                <SelectableTextBlock Text="{Binding ErrorDetails}"
+                                     TextWrapping="Wrap"
+                                     FontFamily="Consolas,Menlo,monospace"
+                                     FontSize="12" />
+            </Expander>
         </StackPanel>
 
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">

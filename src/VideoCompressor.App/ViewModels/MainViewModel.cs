@@ -14,24 +14,34 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly IDialogService _dialogs;
     private readonly IPlatformShell _shell;
     private readonly FfmpegTools? _tools;
+    private readonly SettingsStore _settingsStore;
+
+    // The encoder from saved settings; GPU is applied only once the check confirms it works.
+    private readonly EncoderKind _preferredEncoder;
 
     // Guards the level <-> percent synchronization against feedback loops (US-2.4).
     private bool _syncingLevel;
 
-    public MainViewModel(IDialogService dialogs, IPlatformShell shell, FfmpegTools? tools)
+    public MainViewModel(IDialogService dialogs, IPlatformShell shell, FfmpegTools? tools, SettingsStore settingsStore)
     {
         _dialogs = dialogs;
         _shell = shell;
         _tools = tools;
+        _settingsStore = settingsStore;
 
-        SelectedLevel = Levels.First(l => l.Level == CompressionLevel.Balanced);
-        SelectedFormat = Formats[0];
-        SelectedResolution = Resolutions[0];
-        SelectedFrameRate = FrameRates[0];
         // CPU until the GPU check finishes (plan §4.5).
         Encoders = [CpuEncoder];
         SelectedEncoder = CpuEncoder;
         StatusText = "";
+
+        var settings = settingsStore.Load();
+        _preferredEncoder = settings.Encoder;
+        CompressionPercent = Math.Clamp(settings.CompressionPercent, 0, 100);
+        SelectedLevel = Levels.FirstOrDefault(l => l.Percent == CompressionPercent);
+        SelectedFormat = Formats.FirstOrDefault(f => f.Value == settings.Format) ?? Formats[0];
+        // Unknown values (e.g. a hand-edited file) fall back to "original".
+        SelectedResolution = Resolutions.FirstOrDefault(r => r.Value == settings.MaxHeight) ?? Resolutions[0];
+        SelectedFrameRate = FrameRates.FirstOrDefault(r => r.Value == settings.MaxFps) ?? FrameRates[0];
     }
 
     /// <summary>Background checks that must not delay the window from appearing.</summary>
@@ -45,11 +55,21 @@ public sealed partial class MainViewModel : ObservableObject
         if (await new EncoderDetector(_tools).IsGpuAvailableAsync())
         {
             Encoders.Insert(0, GpuEncoder);
-            if (!IsBusy)
+            if (!IsBusy && _preferredEncoder == EncoderKind.Gpu)
             {
                 SelectedEncoder = GpuEncoder;
             }
         }
+    }
+
+    /// <summary>Remembers the current choices for the next run (FR-008).</summary>
+    public void SaveSettings()
+    {
+        // If the GPU is missing this time (or not checked yet), keep the saved preference
+        // instead of silently switching it to CPU for good.
+        var encoder = Encoders.Contains(GpuEncoder) ? SelectedEncoder.Value : _preferredEncoder;
+        _settingsStore.Save(new AppSettings(
+            CompressionPercent, SelectedFormat.Value, encoder, SelectedResolution.Value, SelectedFrameRate.Value));
     }
 
     public IReadOnlyList<LevelOption> Levels => LevelOption.All;
@@ -67,11 +87,14 @@ public sealed partial class MainViewModel : ObservableObject
     public partial string? InputPath { get; private set; }
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasVideo), nameof(VideoSummary))]
+    [NotifyPropertyChangedFor(nameof(HasVideo), nameof(VideoSummary), nameof(IsHdr))]
     [NotifyCanExecuteChangedFor(nameof(CompressCommand), nameof(BrowseOutputCommand))]
     public partial VideoInfo? VideoInfo { get; private set; }
 
     public bool HasVideo => VideoInfo is not null;
+
+    /// <summary>HDR is not handled specially in v1, so colors may shift (spec §9).</summary>
+    public bool IsHdr => VideoInfo?.IsHdr == true;
 
     public string? FileName => InputPath is null ? null : Path.GetFileName(InputPath);
 
@@ -254,6 +277,13 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty]
     public partial bool HasError { get; private set; }
 
+    /// <summary>Technical tail of the ffmpeg output for errors without a known cause (plan §4.6).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasErrorDetails))]
+    public partial string? ErrorDetails { get; private set; }
+
+    public bool HasErrorDetails => ErrorDetails is not null;
+
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasResult))]
     [NotifyCanExecuteChangedFor(nameof(RevealOutputCommand))]
@@ -296,7 +326,7 @@ public sealed partial class MainViewModel : ObservableObject
         }
         catch (Exception ex) when (ex is FfmpegException or IOException or UnauthorizedAccessException)
         {
-            SetStatus(ex.Message, isError: true);
+            SetStatus(ex.Message, isError: true, details: (ex as FfmpegException)?.Details);
         }
     }
 
@@ -331,6 +361,19 @@ public sealed partial class MainViewModel : ObservableObject
             var result = await new VideoCompressionService(_tools).CompressAsync(
                 InputPath, OutputPath, VideoInfo, BuildSettings(), progress, cancellationToken);
 
+            SaveSettings();
+            // The next run must not silently overwrite this result (US-5.2).
+            OutputPath = OutputPathResolver.GetDefaultOutputPath(InputPath);
+
+            if (result.IsNotSmaller && await ConfirmDeleteNotSmallerAsync(result))
+            {
+                File.Delete(result.OutputPath);
+                OutputPath = OutputPathResolver.GetDefaultOutputPath(InputPath);
+                SetStatus("Сжатый файл удалён: он получился не меньше исходного. " +
+                          "Попробуйте более сильную степень сжатия или уменьшите разрешение.");
+                return;
+            }
+
             LastResult = result;
             SetStatus(Formatting.Result(result));
         }
@@ -342,13 +385,22 @@ public sealed partial class MainViewModel : ObservableObject
         catch (Exception ex) when (ex is FfmpegException or IOException or UnauthorizedAccessException or ArgumentException)
         {
             ProgressPercent = 0;
-            SetStatus(ex.Message, isError: true);
+            SetStatus(ex.Message, isError: true, details: (ex as FfmpegException)?.Details);
         }
         finally
         {
             IsBusy = false;
         }
     }
+
+    /// <summary>Already well-compressed sources can come out larger (spec §9).</summary>
+    private Task<bool> ConfirmDeleteNotSmallerAsync(CompressionResult result) =>
+        _dialogs.ConfirmAsync(
+            "Файл не стал меньше",
+            $"Сжатый файл ({Formatting.Size(result.CompressedSize)}) не меньше исходного " +
+            $"({Formatting.Size(result.OriginalSize)}): видео, вероятно, уже хорошо сжато. Удалить сжатый файл?",
+            "Удалить",
+            "Оставить");
 
     private bool CanCompress() =>
         !IsBusy && _tools is not null && VideoInfo is not null && OutputPath is not null && OutputError is null;
@@ -392,9 +444,10 @@ public sealed partial class MainViewModel : ObservableObject
         new(CompressionPercent, SelectedFormat.Value, SelectedEncoder.Value,
             SelectedResolution.Value, SelectedFrameRate.Value);
 
-    private void SetStatus(string text, bool isError = false)
+    private void SetStatus(string text, bool isError = false, string? details = null)
     {
         StatusText = text;
         HasError = isError;
+        ErrorDetails = string.IsNullOrWhiteSpace(details) ? null : details;
     }
 }

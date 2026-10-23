@@ -18,9 +18,13 @@ public partial class App : Application
         {
             var window = new MainWindow();
             var viewModel = new MainViewModel(
-                new DialogService(window), new PlatformShell(window), FfmpegTools.TryLocate());
+                new DialogService(window),
+                new PlatformShell(window),
+                FfmpegTools.TryLocate(),
+                new SettingsStore(SettingsStore.DefaultPath));
             window.DataContext = viewModel;
             window.Opened += async (_, _) => await viewModel.InitializeAsync();
+            window.Closed += (_, _) => viewModel.SaveSettings();
             desktop.MainWindow = window;
         }
 
