@@ -58,7 +58,8 @@ public static class FfmpegArgumentsBuilder
         return filters;
     }
 
-    private static string[] BuildVideoCodecArguments(CompressionSettings settings)
+    /// <summary>The -c:v part only; also used by the GPU check so that it tests exactly these options.</summary>
+    internal static string[] BuildVideoCodecArguments(CompressionSettings settings)
     {
         var quality = QualityMapping.FormatValue(
             QualityMapping.EncoderValue(settings.CompressionPercent, settings.Format, settings.Encoder));
