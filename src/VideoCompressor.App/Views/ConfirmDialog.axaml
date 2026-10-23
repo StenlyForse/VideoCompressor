@@ -1,0 +1,16 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="VideoCompressor.App.Views.ConfirmDialog"
+        Width="420"
+        SizeToContent="Height"
+        CanResize="False"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner">
+    <StackPanel Margin="20" Spacing="20">
+        <TextBlock x:Name="MessageText" TextWrapping="Wrap" />
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+            <Button x:Name="YesButton" Classes="accent" IsDefault="True" MinWidth="90" HorizontalContentAlignment="Center" />
+            <Button x:Name="NoButton" IsCancel="True" MinWidth="90" HorizontalContentAlignment="Center" />
+        </StackPanel>
+    </StackPanel>
+</Window>

@@ -4,5 +4,35 @@
              RequestedThemeVariant="Default">
     <Application.Styles>
         <FluentTheme />
+
+        <Style Selector="TextBlock.secondary">
+            <Setter Property="Opacity" Value="0.7" />
+        </Style>
+
+        <Style Selector="TextBlock.error">
+            <Setter Property="Foreground" Value="#E04343" />
+        </Style>
+
+        <Style Selector="Border.dropZone">
+            <Setter Property="Padding" Value="16" />
+            <Setter Property="MinHeight" Value="76" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="BorderBrush" Value="{DynamicResource SystemControlForegroundBaseMediumLowBrush}" />
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+
+        <Style Selector="Border.dropZone.dragOver">
+            <Setter Property="BorderThickness" Value="2" />
+            <Setter Property="BorderBrush" Value="{DynamicResource SystemAccentColor}" />
+        </Style>
+
+        <Style Selector="Border.banner">
+            <Setter Property="Padding" Value="12" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Background" Value="#33E0A030" />
+            <Setter Property="BorderBrush" Value="#E0A030" />
+            <Setter Property="BorderThickness" Value="1" />
+        </Style>
     </Application.Styles>
 </Application>

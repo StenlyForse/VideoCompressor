@@ -1,7 +1,10 @@
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using VideoCompressor.App.Services;
+using VideoCompressor.App.ViewModels;
 using VideoCompressor.App.Views;
+using VideoCompressor.Core.Ffmpeg;
 
 namespace VideoCompressor.App;
 
@@ -13,7 +16,10 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            desktop.MainWindow = new MainWindow();
+            var window = new MainWindow();
+            window.DataContext = new MainViewModel(
+                new DialogService(window), new PlatformShell(window), FfmpegTools.TryLocate());
+            desktop.MainWindow = window;
         }
 
         base.OnFrameworkInitializationCompleted();

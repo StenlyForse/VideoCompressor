@@ -1,8 +1,120 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:VideoCompressor.App.ViewModels"
         x:Class="VideoCompressor.App.Views.MainWindow"
+        x:DataType="vm:MainViewModel"
         Title="Video Compressor"
-        Width="640" Height="620"
-        MinWidth="560" MinHeight="520"
-        WindowStartupLocation="CenterScreen">
+        Width="660"
+        SizeToContent="Height"
+        MinWidth="560"
+        CanResize="True"
+        WindowStartupLocation="CenterScreen"
+        DragDrop.AllowDrop="True">
+
+    <StackPanel Margin="20" Spacing="16">
+
+        <!-- FR-006: FFmpeg is not installed -->
+        <Border Classes="banner" IsVisible="{Binding IsFfmpegMissing}">
+            <StackPanel Spacing="6">
+                <TextBlock Text="{Binding FfmpegHintMessage}" TextWrapping="Wrap" />
+                <SelectableTextBlock Text="{Binding FfmpegHintCommand}" FontFamily="Consolas,Menlo,monospace" />
+            </StackPanel>
+        </Border>
+
+        <!-- US-1.1: source video, also the drop target -->
+        <Border x:Name="DropZone" Classes="dropZone">
+            <Grid ColumnDefinitions="*,Auto">
+                <StackPanel Spacing="4" VerticalAlignment="Center">
+                    <TextBlock Text="Перетащите видео сюда"
+                               Classes="secondary"
+                               IsVisible="{Binding !HasVideo}" />
+                    <TextBlock Text="{Binding FileName}"
+                               FontWeight="SemiBold"
+                               TextTrimming="CharacterEllipsis"
+                               IsVisible="{Binding HasVideo}" />
+                    <TextBlock Text="{Binding VideoSummary}"
+                               Classes="secondary"
+                               IsVisible="{Binding HasVideo}" />
+                </StackPanel>
+                <Button Grid.Column="1"
+                        Margin="12,0,0,0"
+                        VerticalAlignment="Center"
+                        Content="Выбрать файл…"
+                        Command="{Binding BrowseInputCommand}" />
+            </Grid>
+        </Border>
+
+        <!-- Settings; locked while compressing -->
+        <Grid ColumnDefinitions="140,*"
+              RowDefinitions="Auto,Auto,Auto"
+              RowSpacing="6"
+              IsEnabled="{Binding IsIdle}">
+
+            <!-- US-2: level + percent slider -->
+            <TextBlock Grid.Row="0" Text="Степень сжатия" VerticalAlignment="Center" />
+            <ComboBox Grid.Row="0" Grid.Column="1"
+                      MinWidth="260"
+                      ItemsSource="{Binding Levels}"
+                      SelectedItem="{Binding SelectedLevel}"
+                      PlaceholderText="Своя настройка">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate x:DataType="vm:LevelOption">
+                        <TextBlock Text="{Binding Name}" />
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+            <TextBlock Grid.Row="1" Grid.Column="1"
+                       Classes="secondary"
+                       TextWrapping="Wrap"
+                       Text="{Binding LevelDescription}" />
+            <Grid Grid.Row="2" Grid.Column="1" ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
+                <TextBlock Text="0%" Classes="secondary" VerticalAlignment="Center" />
+                <Slider Grid.Column="1"
+                        Minimum="0" Maximum="100"
+                        SmallChange="1" LargeChange="5"
+                        TickFrequency="1" IsSnapToTickEnabled="True"
+                        Value="{Binding CompressionPercent}" />
+                <TextBlock Grid.Column="2" Text="100%" Classes="secondary" VerticalAlignment="Center" />
+                <TextBlock Grid.Column="3"
+                           MinWidth="44"
+                           TextAlignment="Right"
+                           VerticalAlignment="Center"
+                           FontWeight="SemiBold"
+                           Text="{Binding CompressionPercent, StringFormat={}{0}%}" />
+            </Grid>
+        </Grid>
+
+        <Separator />
+
+        <!-- US-1.2, US-1.3: progress and result -->
+        <StackPanel Spacing="8">
+            <ProgressBar Minimum="0" Maximum="100"
+                         Value="{Binding ProgressPercent}"
+                         IsVisible="{Binding IsBusy}" />
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock VerticalAlignment="Center"
+                           TextWrapping="Wrap"
+                           Text="{Binding StatusText}"
+                           Classes.error="{Binding HasError}" />
+                <Button Grid.Column="1"
+                        Margin="12,0,0,0"
+                        Content="Показать файл"
+                        Command="{Binding RevealOutputCommand}"
+                        IsVisible="{Binding HasResult}" />
+            </Grid>
+        </StackPanel>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+            <Button Content="Отмена"
+                    MinWidth="100"
+                    HorizontalContentAlignment="Center"
+                    Command="{Binding CompressCancelCommand}"
+                    IsVisible="{Binding IsBusy}" />
+            <Button Content="Сжать"
+                    Classes="accent"
+                    MinWidth="100"
+                    HorizontalContentAlignment="Center"
+                    Command="{Binding CompressCommand}" />
+        </StackPanel>
+    </StackPanel>
 </Window>
