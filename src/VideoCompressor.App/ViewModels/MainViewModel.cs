@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using VideoCompressor.App.Services;
@@ -24,7 +25,29 @@ public sealed partial class MainViewModel : ObservableObject
         _tools = tools;
 
         SelectedLevel = Levels.First(l => l.Level == CompressionLevel.Balanced);
+        SelectedFormat = Formats[0];
+        // CPU until the GPU check finishes (plan §4.5).
+        Encoders = [CpuEncoder];
+        SelectedEncoder = CpuEncoder;
         StatusText = "";
+    }
+
+    /// <summary>Background checks that must not delay the window from appearing.</summary>
+    public async Task InitializeAsync()
+    {
+        if (_tools is null)
+        {
+            return;
+        }
+
+        if (await new EncoderDetector(_tools).IsGpuAvailableAsync())
+        {
+            Encoders.Insert(0, GpuEncoder);
+            if (!IsBusy)
+            {
+                SelectedEncoder = GpuEncoder;
+            }
+        }
     }
 
     public IReadOnlyList<LevelOption> Levels => LevelOption.All;
@@ -105,6 +128,30 @@ public sealed partial class MainViewModel : ObservableObject
         SelectedLevel = Levels.FirstOrDefault(l => l.Percent == value);
         _syncingLevel = false;
     }
+
+    // ---- Format and encoder (US-4) ----
+
+    private static readonly Option<EncoderKind> GpuEncoder =
+        new("Видеокарта (NVIDIA NVENC)", EncoderKind.Gpu, "Быстро: обычно быстрее, чем длится само видео.");
+
+    private static readonly Option<EncoderKind> CpuEncoder =
+        new("Процессор", EncoderKind.Cpu, "Файл на 10–20% меньше при том же качестве, но сжатие примерно в 2 раза дольше.");
+
+    public IReadOnlyList<Option<OutputFormat>> Formats { get; } =
+    [
+        new("Максимальное сжатие (H.265)", OutputFormat.Efficient,
+            "Самый маленький файл. Воспроизводится в современных плеерах, браузерах и Telegram."),
+        new("Максимальная совместимость (H.264)", OutputFormat.Compatible,
+            "Открывается где угодно, включая старые устройства, но файл примерно в 1,5–2 раза больше."),
+    ];
+
+    public ObservableCollection<Option<EncoderKind>> Encoders { get; }
+
+    [ObservableProperty]
+    public partial Option<OutputFormat> SelectedFormat { get; set; }
+
+    [ObservableProperty]
+    public partial Option<EncoderKind> SelectedEncoder { get; set; }
 
     // ---- Progress and result (US-1.2, US-1.3) ----
 
@@ -227,7 +274,7 @@ public sealed partial class MainViewModel : ObservableObject
         LastResult is null ? Task.CompletedTask : _shell.RevealFileAsync(LastResult.OutputPath);
 
     private CompressionSettings BuildSettings() =>
-        new(CompressionPercent, OutputFormat.Efficient, EncoderKind.Cpu);
+        new(CompressionPercent, SelectedFormat.Value, SelectedEncoder.Value);
 
     private void SetStatus(string text, bool isError = false)
     {

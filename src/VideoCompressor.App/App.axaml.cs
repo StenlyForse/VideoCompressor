@@ -17,8 +17,10 @@ public partial class App : Application
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             var window = new MainWindow();
-            window.DataContext = new MainViewModel(
+            var viewModel = new MainViewModel(
                 new DialogService(window), new PlatformShell(window), FfmpegTools.TryLocate());
+            window.DataContext = viewModel;
+            window.Opened += async (_, _) => await viewModel.InitializeAsync();
             desktop.MainWindow = window;
         }
 

@@ -46,7 +46,7 @@
 
         <!-- Settings; locked while compressing -->
         <Grid ColumnDefinitions="140,*"
-              RowDefinitions="Auto,Auto,Auto"
+              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto"
               RowSpacing="6"
               IsEnabled="{Binding IsIdle}">
 
@@ -82,6 +82,31 @@
                            FontWeight="SemiBold"
                            Text="{Binding CompressionPercent, StringFormat={}{0}%}" />
             </Grid>
+
+            <!-- US-4: output format and encoder -->
+            <TextBlock Grid.Row="3" Text="Формат" VerticalAlignment="Center" Margin="0,10,0,0" />
+            <ComboBox Grid.Row="3" Grid.Column="1"
+                      Margin="0,10,0,0"
+                      MinWidth="260"
+                      ItemsSource="{Binding Formats}"
+                      SelectedItem="{Binding SelectedFormat}"
+                      DisplayMemberBinding="{ReflectionBinding Name}" />
+            <TextBlock Grid.Row="4" Grid.Column="1"
+                       Classes="secondary"
+                       TextWrapping="Wrap"
+                       Text="{Binding SelectedFormat.Hint}" />
+
+            <TextBlock Grid.Row="5" Text="Кодировщик" VerticalAlignment="Center" Margin="0,10,0,0" />
+            <ComboBox Grid.Row="5" Grid.Column="1"
+                      Margin="0,10,0,0"
+                      MinWidth="260"
+                      ItemsSource="{Binding Encoders}"
+                      SelectedItem="{Binding SelectedEncoder}"
+                      DisplayMemberBinding="{ReflectionBinding Name}" />
+            <TextBlock Grid.Row="6" Grid.Column="1"
+                       Classes="secondary"
+                       TextWrapping="Wrap"
+                       Text="{Binding SelectedEncoder.Hint}" />
         </Grid>
 
         <Separator />
