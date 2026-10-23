@@ -31,6 +31,9 @@ public sealed partial class MainViewModel : ObservableObject
     private bool _formatChosenByUser;
     private bool _settingFormatInCode;
 
+    // Property-changed hooks fire while the constructor is still filling in the settings.
+    private readonly bool _initialized;
+
     public MainViewModel(
         IDialogService dialogs, IPlatformShell shell, FfmpegTools? tools, SettingsStore settingsStore, bool hevcPlayable)
     {
@@ -57,8 +60,13 @@ public sealed partial class MainViewModel : ObservableObject
         // Unknown values (e.g. a hand-edited file) fall back to "original".
         SelectedResolution = Resolutions.FirstOrDefault(r => r.Value == settings.MaxHeight) ?? Resolutions[0];
         SelectedFrameRate = FrameRates.FirstOrDefault(r => r.Value == settings.MaxFps) ?? FrameRates[0];
+        IsTargetSizeMode = settings.TargetSizeMode;
+        CustomTargetMb = Math.Clamp(settings.TargetSizeMb, 1, MaxTargetMb);
+        SelectedTargetSize = TargetSizes.FirstOrDefault(t => t.Value == settings.TargetSizeMb) ?? TargetSizes[^1];
 
         Items.CollectionChanged += OnItemsChanged;
+        _initialized = true;
+        UpdateTargetAdvice();
     }
 
     /// <summary>Background checks that must not delay the window from appearing.</summary>
@@ -87,7 +95,8 @@ public sealed partial class MainViewModel : ObservableObject
         var encoder = Encoders.Contains(GpuEncoder) ? SelectedEncoder.Value : _preferredEncoder;
         var format = _formatChosenByUser ? SelectedFormat.Value : (OutputFormat?)null;
         _settingsStore.Save(new AppSettings(
-            CompressionPercent, format, encoder, SelectedResolution.Value, SelectedFrameRate.Value));
+            CompressionPercent, format, encoder, SelectedResolution.Value, SelectedFrameRate.Value,
+            IsTargetSizeMode, TargetSizeMb ?? 25));
     }
 
     public IReadOnlyList<LevelOption> Levels => LevelOption.All;
@@ -126,7 +135,7 @@ public sealed partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(HasFinishedItems));
         // "Сохранить в" exists only for a single file; with more files results go next to their sources.
         OutputPath = SingleItem is { } single ? OutputPathResolver.GetDefaultOutputPath(single.InputPath) : null;
-        RefreshCommands();
+        UpdateTargetAdvice();
     }
 
     [RelayCommand(CanExecute = nameof(CanEditList))]
@@ -170,7 +179,7 @@ public sealed partial class MainViewModel : ObservableObject
             }
         }
 
-        RefreshCommands();
+        UpdateTargetAdvice();
     }
 
     /// <summary>Drag &amp; drop of something without a local path, e.g. from a browser.</summary>
@@ -295,6 +304,193 @@ public sealed partial class MainViewModel : ObservableObject
         _syncingLevel = false;
     }
 
+    // ---- Target size (spec 002) ----
+
+    private const long MiB = 1024 * 1024;
+    private const int MaxTargetMb = 100_000;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsQualityMode))]
+    public partial bool IsTargetSizeMode { get; set; }
+
+    /// <summary>The other radio button of the mode switch.</summary>
+    public bool IsQualityMode
+    {
+        get => !IsTargetSizeMode;
+        set => IsTargetSizeMode = !value;
+    }
+
+    public IReadOnlyList<Option<int?>> TargetSizes { get; } =
+    [
+        new("10 МБ — Discord без Nitro", 10),
+        new("25 МБ — вложение в почту", 25),
+        new("50 МБ", 50),
+        new("Своё значение", null),
+    ];
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsCustomTargetSize))]
+    public partial Option<int?> SelectedTargetSize { get; set; }
+
+    public bool IsCustomTargetSize => SelectedTargetSize?.Value is null;
+
+    [ObservableProperty]
+    public partial decimal? CustomTargetMb { get; set; }
+
+    public int MaxTargetSizeMb => MaxTargetMb;
+
+    private int? TargetSizeMb => SelectedTargetSize?.Value
+        ?? (CustomTargetMb is decimal mb && mb >= 1 && mb <= MaxTargetMb ? (int)mb : null);
+
+    partial void OnIsTargetSizeModeChanged(bool value) => UpdateTargetAdvice();
+
+    partial void OnSelectedTargetSizeChanged(Option<int?> value) => UpdateTargetAdvice();
+
+    partial void OnCustomTargetMbChanged(decimal? value) => UpdateTargetAdvice();
+
+    /// <summary>Warning about the chosen size (spec 002 US-3), or <c>null</c> when it is fine.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasTargetAdvice))]
+    public partial string? TargetAdvice { get; private set; }
+
+    public bool HasTargetAdvice => TargetAdvice is not null;
+
+    /// <summary>The size cannot be reached at all: compression is blocked (spec 002 US-3.4).</summary>
+    [ObservableProperty]
+    public partial bool IsTargetImpossible { get; private set; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasTargetAdviceAction))]
+    public partial string? TargetAdviceAction { get; private set; }
+
+    public bool HasTargetAdviceAction => TargetAdviceAction is not null;
+
+    private Action? _applyTargetAdvice;
+
+    [RelayCommand]
+    private void ApplyTargetAdvice() => _applyTargetAdvice?.Invoke();
+
+    /// <summary>
+    /// Re-evaluates the chosen size against every file waiting to be compressed: notes on files that already
+    /// fit, a block when it is impossible, a warning with a one-click fix for the hardest file otherwise.
+    /// </summary>
+    private void UpdateTargetAdvice()
+    {
+        if (!_initialized)
+        {
+            return;
+        }
+
+        TargetAdvice = null;
+        TargetAdviceAction = null;
+        _applyTargetAdvice = null;
+        IsTargetImpossible = false;
+        foreach (var item in Items)
+        {
+            item.TargetNote = null;
+        }
+
+        var settings = BuildSettings();
+        if (settings.TargetSizeBytes is null || TargetSizeMb is not int mb)
+        {
+            RefreshCommands();
+            return;
+        }
+
+        var plans = Items
+            .Where(IsCompressible)
+            .Select(i => (Item: i, Plan: TargetSizePlanner.Plan(i.VideoInfo!, settings)))
+            .ToList();
+        foreach (var (item, _) in plans.Where(p => p.Plan.Verdict == TargetVerdict.AlreadySmaller))
+        {
+            item.TargetNote = $"Уже меньше {mb} МБ — сжимать не нужно";
+        }
+
+        if (plans.FirstOrDefault(p => p.Plan.Verdict == TargetVerdict.Impossible).Item is { } impossible)
+        {
+            IsTargetImpossible = true;
+            TargetAdvice = $"{Subject(impossible)}в {mb} МБ не уместить даже звук. Выберите размер побольше.";
+            RefreshCommands();
+            return;
+        }
+
+        var worst = plans
+            .Where(p => p.Plan.Verdict == TargetVerdict.LowQuality)
+            .OrderBy(p => p.Plan.BitsPerPixel)
+            .FirstOrDefault();
+        if (worst.Item is { } hardest)
+        {
+            var geometry = OutputGeometry.Of(hardest.VideoInfo!, settings);
+            TargetAdvice = $"{Subject(hardest)}{geometry.Height}p · {Math.Round(geometry.Fps):0} fps " +
+                           $"в {mb} МБ — качество будет низким.";
+            if (worst.Plan.Suggestion is { } suggestion)
+            {
+                var change = suggestion.MaxHeight is int h && h != settings.MaxHeight ? $"30 fps и {h}p" : "30 fps";
+                TargetAdvice += $" Лучше уменьшить до {change}.";
+                TargetAdviceAction = $"Применить: {change}";
+                _applyTargetAdvice = () =>
+                {
+                    SelectedFrameRate = FrameRates.First(f => f.Value == suggestion.MaxFps);
+                    if (suggestion.MaxHeight is int height)
+                    {
+                        SelectedResolution = Resolutions.First(r => r.Value == height);
+                    }
+                };
+            }
+            else if (worst.Plan.MinReasonableSizeBytes is long minimum)
+            {
+                var minimumMb = (int)(minimum / MiB);
+                TargetAdvice += $" Для приемлемого качества нужно не меньше {minimumMb} МБ.";
+                TargetAdviceAction = $"Выбрать {minimumMb} МБ";
+                _applyTargetAdvice = () =>
+                {
+                    CustomTargetMb = minimumMb;
+                    SelectedTargetSize = TargetSizes[^1];
+                };
+            }
+        }
+
+        RefreshCommands();
+
+        string Subject(QueueItemViewModel item) => Items.Count > 1 ? $"«{item.FileName}»: " : "";
+    }
+
+    /// <summary>Spec 002 US-2: files that already fit are compressed only if the user says so.</summary>
+    /// <returns>The files to compress.</returns>
+    private async Task<List<QueueItemViewModel>> ConfirmAlreadySmallerAsync(
+        List<QueueItemViewModel> runnable, CompressionSettings settings)
+    {
+        var small = runnable
+            .Where(i => TargetSizePlanner.Plan(i.VideoInfo!, settings).Verdict == TargetVerdict.AlreadySmaller)
+            .ToList();
+        if (small.Count == 0)
+        {
+            return runnable;
+        }
+
+        var mb = TargetSizeMb;
+        var single = runnable.Count == 1;
+        var compressAnyway = await _dialogs.ConfirmAsync(
+            "Файл уже меньше цели",
+            single
+                ? $"Файл уже меньше {mb} МБ — сжимать его не нужно. Сжать всё равно?"
+                : $"Уже меньше {mb} МБ файлов: {small.Count} из {runnable.Count}. Сжать их всё равно?",
+            "Сжать всё равно",
+            single ? "Не сжимать" : "Пропустить их");
+        if (compressAnyway)
+        {
+            return runnable;
+        }
+
+        foreach (var item in small)
+        {
+            item.MarkSkipped($"уже меньше {mb} МБ");
+        }
+
+        return [.. runnable.Except(small)];
+    }
+
+
     // ---- Format and encoder (US-4) ----
 
     private static readonly Option<EncoderKind> GpuEncoder =
@@ -324,6 +520,8 @@ public sealed partial class MainViewModel : ObservableObject
         {
             _formatChosenByUser = true;
         }
+
+        UpdateTargetAdvice();
     }
 
     private void SetFormatInCode(Option<OutputFormat> format)
@@ -386,6 +584,10 @@ public sealed partial class MainViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(AdvancedHeader))]
     public partial Option<int?> SelectedFrameRate { get; set; }
 
+    partial void OnSelectedResolutionChanged(Option<int?> value) => UpdateTargetAdvice();
+
+    partial void OnSelectedFrameRateChanged(Option<int?> value) => UpdateTargetAdvice();
+
     /// <summary>The block is collapsed by default, so the header tells when something is changed in it.</summary>
     public string AdvancedHeader
     {
@@ -432,10 +634,22 @@ public sealed partial class MainViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanCompress), IncludeCancelCommand = true)]
     private async Task CompressAsync(CancellationToken cancellationToken)
     {
-        var runnable = Items.Where(i => i.IsRunnable).ToList();
+        var runnable = Items.Where(IsCompressible).ToList();
         if (_tools is null || runnable.Count == 0)
         {
             return;
+        }
+
+        var settings = BuildSettings();
+        if (settings.TargetSizeBytes is not null)
+        {
+            runnable = await ConfirmAlreadySmallerAsync(runnable, settings);
+            if (runnable.Count == 0)
+            {
+                SetStatus("Сжимать нечего: все файлы уже меньше выбранного размера.");
+                UpdateTargetAdvice();
+                return;
+            }
         }
 
         var single = IsSingleFile;
@@ -465,7 +679,7 @@ public sealed partial class MainViewModel : ObservableObject
 
             // US-4: a queue never stops to ask; a single file asks as in v1.
             var results = await new BatchCompressionService(_tools).RunAsync(
-                batch, BuildSettings(), deleteNotSmaller: !single, itemProgress, batchProgress, cancellationToken);
+                batch, settings, deleteNotSmaller: !single, itemProgress, batchProgress, cancellationToken);
             for (var i = 0; i < results.Count; i++)
             {
                 runnable[i].Apply(results[i]);
@@ -492,6 +706,7 @@ public sealed partial class MainViewModel : ObservableObject
         {
             IsBusy = false;
             OnPropertyChanged(nameof(HasFinishedItems));
+            UpdateTargetAdvice();
         }
     }
 
@@ -534,8 +749,16 @@ public sealed partial class MainViewModel : ObservableObject
             "Удалить",
             "Оставить");
 
+    /// <summary>
+    /// What "Сжать" processes. A queue skips finished files; a single file can be compressed again
+    /// with other settings, as in v1 (spec 003 US-1.9) — the output path has already moved to a free name.
+    /// </summary>
+    private bool IsCompressible(QueueItemViewModel item) =>
+        item.IsRunnable || (IsSingleFile && item.VideoInfo is not null && item.IsFinished);
+
     private bool CanCompress() =>
-        !IsBusy && _tools is not null && Items.Any(i => i.IsRunnable) && OutputError is null;
+        !IsBusy && _tools is not null && Items.Any(IsCompressible) && OutputError is null &&
+        (!IsTargetSizeMode || (TargetSizeMb is not null && !IsTargetImpossible));
 
     /// <summary>
     /// Called when the window is closing. While compressing, asks the user and, if confirmed,
@@ -570,7 +793,8 @@ public sealed partial class MainViewModel : ObservableObject
 
     private CompressionSettings BuildSettings() =>
         new(CompressionPercent, SelectedFormat.Value, SelectedEncoder.Value,
-            SelectedResolution.Value, SelectedFrameRate.Value);
+            SelectedResolution.Value, SelectedFrameRate.Value,
+            IsTargetSizeMode && TargetSizeMb is int mb ? mb * MiB : null);
 
     private void RefreshCommands()
     {

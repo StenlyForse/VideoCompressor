@@ -18,6 +18,9 @@ public enum QueueItemStatus
     Failed,
     Cancelled,
     SkippedNotSmaller,
+
+    /// <summary>Not compressed this time by the user's choice (e.g. already below the target size); runs next time.</summary>
+    Skipped,
 }
 
 /// <summary>One file in the queue (spec 003 US-1.2, US-1.6).</summary>
@@ -50,7 +53,8 @@ public sealed partial class QueueItemViewModel(string inputPath, IPlatformShell 
     /// What "Сжать" will process: never-run, cancelled and failed files; finished and broken ones are skipped.
     /// </summary>
     public bool IsRunnable =>
-        VideoInfo is not null && Status is QueueItemStatus.Waiting or QueueItemStatus.Cancelled or QueueItemStatus.Failed;
+        VideoInfo is not null &&
+        Status is QueueItemStatus.Waiting or QueueItemStatus.Cancelled or QueueItemStatus.Failed or QueueItemStatus.Skipped;
 
     [ObservableProperty]
     public partial string StatusText { get; private set; } = "Анализ…";
@@ -67,6 +71,13 @@ public sealed partial class QueueItemViewModel(string inputPath, IPlatformShell 
     public bool HasResultFile => Result is not null && Status == QueueItemStatus.Done;
 
     public string? ErrorDetails { get; private set; }
+
+    /// <summary>Target-size remark for this file, e.g. "Уже меньше 25 МБ" (spec 002 US-2).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasTargetNote))]
+    public partial string? TargetNote { get; set; }
+
+    public bool HasTargetNote => TargetNote is not null;
 
     public void SetAnalyzed(VideoInfo info)
     {
@@ -110,6 +121,8 @@ public sealed partial class QueueItemViewModel(string inputPath, IPlatformShell 
                 break;
         }
     }
+
+    public void MarkSkipped(string reason) => SetStatus(QueueItemStatus.Skipped, $"Пропущен: {reason}");
 
     /// <summary>Single-file mode: the user deleted a not-smaller result after the dialog (spec 001 §9).</summary>
     public void MarkResultDeleted() =>

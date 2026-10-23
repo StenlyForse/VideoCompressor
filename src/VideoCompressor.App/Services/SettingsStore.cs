@@ -6,12 +6,15 @@ namespace VideoCompressor.App.Services;
 
 /// <summary>The choices remembered between runs (FR-008).</summary>
 /// <param name="Format">Only a format the user picked; <c>null</c> means "choose automatically" (plan §4.8).</param>
+/// <param name="TargetSizeMode">"Целевой размер" instead of "Степень сжатия" (spec 002 US-1.6).</param>
 public sealed record AppSettings(
     int CompressionPercent = (int)CompressionLevel.Balanced,
     OutputFormat? Format = null,
     EncoderKind Encoder = EncoderKind.Gpu,
     int? MaxHeight = null,
-    int? MaxFps = null);
+    int? MaxFps = null,
+    bool TargetSizeMode = false,
+    int TargetSizeMb = 25);
 
 /// <summary>
 /// Stores <see cref="AppSettings"/> as JSON in the per-user application data folder

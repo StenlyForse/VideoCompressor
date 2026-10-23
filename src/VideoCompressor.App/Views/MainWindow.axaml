@@ -63,11 +63,15 @@
                                            Classes="secondary"
                                            Text="{Binding Summary}"
                                            IsVisible="{Binding Summary, Converter={x:Static ObjectConverters.IsNotNull}}" />
-                                <TextBlock Grid.Row="2"
-                                           Classes="warning"
-                                           TextWrapping="Wrap"
-                                           Text="HDR-видео: HDR не поддерживается, цвета в результате могут выглядеть блёклыми."
-                                           IsVisible="{Binding IsHdr}" />
+                                <StackPanel Grid.Row="2" Spacing="2">
+                                    <TextBlock Classes="warning"
+                                               TextWrapping="Wrap"
+                                               Text="HDR-видео: HDR не поддерживается, цвета в результате могут выглядеть блёклыми."
+                                               IsVisible="{Binding IsHdr}" />
+                                    <TextBlock Classes="secondary"
+                                               Text="{Binding TargetNote}"
+                                               IsVisible="{Binding HasTargetNote}" />
+                                </StackPanel>
                                 <Grid Grid.Row="3" Grid.ColumnSpan="2" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
                                     <TextBlock VerticalAlignment="Center"
                                                TextWrapping="Wrap"
@@ -96,37 +100,78 @@
               RowSpacing="6"
               IsEnabled="{Binding IsIdle}">
 
-            <!-- US-2: level + percent slider -->
-            <TextBlock Grid.Row="0" Text="Степень сжатия" VerticalAlignment="Center" />
-            <ComboBox Grid.Row="0" Grid.Column="1"
-                      MinWidth="260"
-                      ItemsSource="{Binding Levels}"
-                      SelectedItem="{Binding SelectedLevel}"
-                      PlaceholderText="Своя настройка">
-                <ComboBox.ItemTemplate>
-                    <DataTemplate x:DataType="vm:LevelOption">
-                        <TextBlock Text="{Binding Name}" />
-                    </DataTemplate>
-                </ComboBox.ItemTemplate>
-            </ComboBox>
-            <TextBlock Grid.Row="1" Grid.Column="1"
-                       Classes="secondary"
-                       TextWrapping="Wrap"
-                       Text="{Binding LevelDescription}" />
-            <Grid Grid.Row="2" Grid.Column="1" ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
-                <TextBlock Text="0%" Classes="secondary" VerticalAlignment="Center" />
-                <Slider Grid.Column="1"
-                        Minimum="0" Maximum="100"
-                        SmallChange="1" LargeChange="5"
-                        TickFrequency="1" IsSnapToTickEnabled="True"
-                        Value="{Binding CompressionPercent}" />
-                <TextBlock Grid.Column="2" Text="100%" Classes="secondary" VerticalAlignment="Center" />
-                <TextBlock Grid.Column="3"
-                           MinWidth="44"
-                           TextAlignment="Right"
-                           VerticalAlignment="Center"
-                           FontWeight="SemiBold"
-                           Text="{Binding CompressionPercent, StringFormat={}{0}%}" />
+            <!-- Spec 002 US-1.1: quality or target size -->
+            <TextBlock Grid.Row="0" Text="Режим" VerticalAlignment="Center" />
+            <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" Spacing="16">
+                <RadioButton GroupName="Mode" Content="Степень сжатия" IsChecked="{Binding IsQualityMode}" />
+                <RadioButton GroupName="Mode" Content="Целевой размер" IsChecked="{Binding IsTargetSizeMode}" />
+            </StackPanel>
+
+            <!-- Spec 001 US-2: level + percent slider -->
+            <Grid Grid.Row="1" Grid.ColumnSpan="2"
+                  ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="6"
+                  Margin="0,6,0,0"
+                  IsVisible="{Binding IsQualityMode}">
+                <TextBlock Text="Степень сжатия" VerticalAlignment="Center" />
+                <ComboBox Grid.Column="1"
+                          MinWidth="260"
+                          ItemsSource="{Binding Levels}"
+                          SelectedItem="{Binding SelectedLevel}"
+                          PlaceholderText="Своя настройка">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:LevelOption">
+                            <TextBlock Text="{Binding Name}" />
+                        </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
+                <TextBlock Grid.Row="1" Grid.Column="1"
+                           Classes="secondary"
+                           TextWrapping="Wrap"
+                           Text="{Binding LevelDescription}" />
+                <Grid Grid.Row="2" Grid.Column="1" ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
+                    <TextBlock Text="0%" Classes="secondary" VerticalAlignment="Center" />
+                    <Slider Grid.Column="1"
+                            Minimum="0" Maximum="100"
+                            SmallChange="1" LargeChange="5"
+                            TickFrequency="1" IsSnapToTickEnabled="True"
+                            Value="{Binding CompressionPercent}" />
+                    <TextBlock Grid.Column="2" Text="100%" Classes="secondary" VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="3"
+                               MinWidth="44"
+                               TextAlignment="Right"
+                               VerticalAlignment="Center"
+                               FontWeight="SemiBold"
+                               Text="{Binding CompressionPercent, StringFormat={}{0}%}" />
+                </Grid>
+            </Grid>
+
+            <!-- Spec 002 US-1, US-3: target size + warning with a one-click fix -->
+            <Grid Grid.Row="2" Grid.ColumnSpan="2"
+                  ColumnDefinitions="140,*" RowDefinitions="Auto,Auto" RowSpacing="6"
+                  Margin="0,6,0,0"
+                  IsVisible="{Binding IsTargetSizeMode}">
+                <TextBlock Text="Не больше" VerticalAlignment="Center" />
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                    <ComboBox MinWidth="260"
+                              ItemsSource="{Binding TargetSizes}"
+                              SelectedItem="{Binding SelectedTargetSize}"
+                              DisplayMemberBinding="{ReflectionBinding Name}" />
+                    <NumericUpDown Width="130"
+                                   Minimum="1" Maximum="{Binding MaxTargetSizeMb}"
+                                   Increment="1" FormatString="0"
+                                   Value="{Binding CustomTargetMb}"
+                                   IsVisible="{Binding IsCustomTargetSize}" />
+                    <TextBlock Text="МБ" VerticalAlignment="Center" IsVisible="{Binding IsCustomTargetSize}" />
+                </StackPanel>
+                <StackPanel Grid.Row="1" Grid.Column="1" Spacing="6" IsVisible="{Binding HasTargetAdvice}">
+                    <TextBlock TextWrapping="Wrap"
+                               Text="{Binding TargetAdvice}"
+                               Classes.error="{Binding IsTargetImpossible}"
+                               Classes.warning="{Binding !IsTargetImpossible}" />
+                    <Button Content="{Binding TargetAdviceAction}"
+                            Command="{Binding ApplyTargetAdviceCommand}"
+                            IsVisible="{Binding HasTargetAdviceAction}" />
+                </StackPanel>
             </Grid>
 
             <!-- US-4: output format and encoder -->
